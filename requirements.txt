@@ -1,0 +1,11 @@
+numpy>=1.24
+scipy>=1.10
+numba>=0.59
+matplotlib>=3.7
+pyvista>=0.43
+ezdxf>=1.1
+pytest>=7.4
+
+# Opzionale: senza questo pacchetto l'esportazione STEP viene saltata con un
+# avviso, tutti gli altri formati funzionano lo stesso.
+# cadquery>=2.4

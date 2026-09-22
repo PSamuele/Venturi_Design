@@ -1,5 +1,11 @@
 # Venturi Design & CFD
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)
+![Tested](https://img.shields.io/badge/Tested-Linux%20%7C%20Python%203.12-lightgrey)
+![Solver](https://img.shields.io/badge/Solver-NumPy%20%7C%20SciPy%20%7C%20Numba-orange)
+![Tests](https://img.shields.io/badge/Tests-20-green)
+
 A parametric Venturi tube designer with its own CFD solver attached.
 
 You give it an inlet diameter, a beta ratio and the two pressures you want.

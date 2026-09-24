@@ -69,6 +69,17 @@ The second line runs the default case: water at 20 C, a 100 mm pipe, a
 writes its files to
 `results/water_20C_D100_beta0.50_Pin101325_Pth95000/`.
 
+To check how much the answer still depends on the grid:
+
+```bash
+python -m venturi.grid_study                    # 3 grids, about 2 minutes on 4 cores
+python -m venturi.grid_study --beta 0.6         # accepts every main.py option
+python -m venturi.grid_study --levels 90x36,128x51,180x72 --jobs 2
+```
+
+It writes `grid_study.md` and `grid_study.csv` to
+`results/grid_study_<case>/`. Section 10 explains how to read them.
+
 The program ends with one of these lines:
 
 - `RESULT: ALL CHECKS PASSED` (exit code 0)
@@ -293,6 +304,9 @@ Below the checks you get these numbers:
 | y+ | wall distance in wall units | - | distance of the first cell centre from the wall, scaled by the friction at the wall |
 | CFL | Courant number | - | time step times speed divided by cell size; must stay below 1 |
 | dt | time step | s | how far the simulation moves in one step |
+| h | cell size | - | representative cell size of a grid, 1 / sqrt(number of cells) |
+| p | observed order | - | how fast the result changes as h shrinks: the change goes like h^p |
+| GCI | grid convergence index | % | error band on the finest-grid result from a grid study |
 | residual | residual | - | largest change of speed per step, divided by dt and made dimensionless with the tube length and the throat speed |
 
 ## 9. Words used in this README
@@ -319,6 +333,12 @@ Below the checks you get these numbers:
   from full speed down to zero. Most of the friction happens there.
 - **Wall clustering**: making the cells thinner near the wall so the
   boundary layer is described well.
+- **Grid study**: solving the same case on several grids, each finer than
+  the last, to see how much the answer still changes. If it changes by
+  less and less in a regular way, the trend can be extended to an
+  infinitely fine grid (*Richardson extrapolation*), and the distance to
+  that value gives an error band (*GCI*, from Celik et al., J. Fluids Eng.
+  130, 2008).
 - **Local time step**: each cell moves forward in time with the largest
   step that is safe for that cell, instead of all cells using the smallest
   one. The in-between states are then not a real time history, but the
@@ -350,16 +370,34 @@ round geometry all at once.
 **Default Venturi case (90 x 36, throat refinement auto = 4):** C_d = 0.9751.
 The wall pressure drop is 6652 Pa, against 6325 Pa without friction.
 
-**Two grids:**
+**Grid study** (`python -m venturi.grid_study`, see below). The default
+case was solved on four grids, each with about sqrt(2) times more cells
+per direction, with the same shape of spacing and a residual target of
+1e-4:
 
-| grid | C_d |
-|---|---|
-| 90 x 36 | 0.9751 |
-| 128 x 51 | 0.9773 |
+| grid | converged | y+ | C_d |
+|---|---|---|---|
+| 64 x 26 | yes | 6.0 | 0.97003 |
+| 90 x 36 (default) | yes | 4.2 | 0.97491 |
+| 128 x 51 | yes | 3.1 | 0.97737 |
+| 180 x 72 | no (residual stays near 7e-3) | 2.1 | 0.97839 |
 
-The finer grid gives a C_d 0.23 % higher. Two grids show the direction of
-the change but not where it stops, so the grid error of the default case is
-of the order of a few tenths of a percent.
+- C_d grows as the cells shrink, and each step adds about half of the
+  previous one (+0.0049, +0.0025, +0.0010). That is what a scheme of
+  second order should do.
+- From the three converged grids: observed order p = 2.16, extrapolated
+  (infinitely fine grid) C_d = 0.9795, and a GCI of 0.28 % on the
+  128 x 51 value. In words: the grid-independent C_d should lie within
+  0.28 % of 0.9774.
+- The default grid (90 x 36) is about 0.47 % below the extrapolated value.
+  Use 128 x 51 when that matters.
+- The 180 x 72 grid does not settle: after 400,000 steps its residual
+  hovers near 7e-3 (target 1e-4) or 2e-2 (target 1e-3). Its C_d is
+  nevertheless the same to five digits in both runs, 0.97839, so the
+  hovering does not move C_d. The value also falls where the trend
+  predicts (0.97854).
+- 64 x 26 has y+ = 6, above the 5 the wall models need, so the triplet
+  that uses it is a little less trustworthy.
 
 **How C_d depends on the throat cells** (default case, global time step,
 taps interpolated to their exact position; measured before the cell-size
@@ -385,8 +423,9 @@ takes about three times longer.
 
 **What has NOT been shown:**
 
-- **That the Venturi result is grid independent.** Only two grids (see
-  above), and they differ by 0.23 %.
+- **That the finest grids are fully converged.** The 180 x 72 grid does
+  not settle, so the grid error estimate rests on 64 x 26, 90 x 36 and
+  128 x 51.
 - **That C_d is settled to better than about 0.1 %.** See the table above:
   the wall pressure right after the throat corner still wobbles a little
   from cell to cell. The pressure also differs between axis and wall in the
@@ -423,6 +462,7 @@ Measured on one CPU core of the machine used for development (`--tol`
 | air, 1325 Pa drop | does not settle in 400,000 | 16,115 / 9 s | - / 0.97429 |
 | mixing length model | 125,136 / 45 s | 19,931 / 9 s | 0.97353 / 0.97351 |
 | 40 x 16 (too coarse, y+ = 8.7) | settles | does not settle | |
+| 180 x 72 | not tried (too slow) | does not settle in 400,000 (14 min) | - / 0.97839 |
 
 The two modes agree on C_d within 0.025 %.
 
@@ -444,7 +484,9 @@ local mode even takes about 1.5 times more steps there, because it keeps a
 20 % safety margin). On very coarse grids (40 x 16 above) the local mode
 can keep hovering instead of settling: the Baldwin-Lomax model switches
 between neighbouring cells and the bigger steps keep that going. Use
-`--time-step global` there, or a finer grid.
+`--time-step global` there, or a finer grid. The same hovering shows up on
+the finest grid tried, 180 x 72, where C_d nevertheless stays fixed to five
+digits.
 
 ## 12. Project layout
 
@@ -462,6 +504,7 @@ venturi/
     kernels.py             the heavy loops, compiled with Numba
   turbulence.py            mixing length and Baldwin-Lomax models
   validation.py            checks, pressure taps, C_d
+  grid_study.py            same case on several grids, error estimate
   optimizer.py             quick choice of D, beta, widening angle (mode 2)
   export/
     paraview.py            .vts and .stl
@@ -475,7 +518,7 @@ results/                   created by the runs, not stored in git
 ## 13. Tests
 
 ```bash
-pytest tests/          # 62 tests, about 10 seconds
+pytest tests/          # 72 tests, about 10 seconds
 ```
 
 | file | what it checks |
@@ -486,6 +529,7 @@ pytest tests/          # 62 tests, about 10 seconds
 | `test_geometry.py` | radius and slope are continuous where the rounded corners join; slope matches a numerical derivative |
 | `test_inputs.py` | wrong inputs are refused; sizing gives the requested pressure drop; gas density follows pressure; Mach and cavitation warnings; command-line options reach the program; automatic throat refinement = 1/beta^2 and its cap; the optimiser; taps read the wall at their exact position; the cavitation check |
 | `test_export.py` | every file carries the right value on the right point; missing libraries skip files cleanly |
+| `test_grid_study.py` | Richardson extrapolation and GCI recover the exact order and limit of a known power law, also with unequal refinement ratios; up-and-down results are flagged |
 
 ## 14. Questions and problems
 

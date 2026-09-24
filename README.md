@@ -18,21 +18,6 @@ I wrote it because I wanted to understand projection methods by building
 one, rather than by reading about one. There is no OpenFOAM or Fluent
 underneath: the solver is plain Python with Numba for the heavy loops.
 
-## Contents
-
-1. [Running it](#running-it)
-2. [What comes out](#what-comes-out)
-3. [Options](#options)
-4. [Reading a run](#reading-a-run)
-5. [Why the solver is built this way](#why-the-solver-is-built-this-way)
-6. [What I checked](#what-i-checked)
-7. [What I have not shown, and the approximations](#what-i-have-not-shown-and-the-approximations)
-8. [Speed](#speed)
-9. [Symbols](#symbols)
-10. [Layout](#layout)
-11. [Tests](#tests)
-12. [When something fails](#when-something-fails)
-
 ## Running it
 
 Python 3.10 or newer.
@@ -189,7 +174,7 @@ which happens when the time steps are updated.
 |---|---|---|---|
 | Inlet/outlet mass balance | what goes out equals what comes in | mismatch < 0.1 % | a bug, tell me |
 | Leftover divergence | no cell makes or loses fluid | < 1e-9 of the flow through the cell | a bug, tell me |
-| Steady state reached | the flow stopped changing | residual < `--tol` | see [When something fails](#when-something-fails) |
+| Steady state reached | the flow stopped changing | residual < `--tol` | see the last section |
 | First cell y+ | wall cells thin enough for the turbulence model | y+ < 5 | raise `--clustering` or `--Nr` |
 | No cavitation | lowest pressure stays above the vapour pressure, so the liquid doesn't boil | p_min > p_vap | raise `--p-throat` or `beta` |
 | C_d vs reference | only with `--cd-ref` | within `--cd-tol` | - |
@@ -429,18 +414,18 @@ pytest tests/          # 72 tests, about 10 seconds
 
 ## When something fails
 
-**"Steady state reached" fails.** Raise `--max-iter`. If the residual stops
-going down and just hovers, try `--time-step global` or a lower `--cfl`
-(0.4). See [Speed](#speed).
+If "Steady state reached" fails, give it more steps with `--max-iter`. If the
+residual stops going down and just hovers, `--time-step global` or a lower
+`--cfl` (0.4) usually gets it there; see [Speed](#speed).
 
-**"First cell y+" fails.** The wall cells are too thick for the turbulence
+If "First cell y+" fails, the wall cells are too thick for the turbulence
 model. Raise `--clustering` (3.0) or `--Nr`.
 
-**Mach warning with a gas.** The pressure drop is too big for the inlet
-pressure, the gas density changes along the tube and the program keeps it
-fixed. Treat the result as indicative.
+A Mach warning with a gas means the pressure drop is too big for the inlet
+pressure. The gas density then changes along the tube while the program
+keeps it fixed, so treat the result as indicative.
 
-**A fluid that isn't in the list.**
+For a fluid that isn't in the list:
 `--fluid custom --rho 850 --mu 0.003 --p-vap 500`
 
 If you spot something wrong, tell me.

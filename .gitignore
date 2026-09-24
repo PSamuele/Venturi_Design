@@ -1,6 +1,37 @@
-﻿__pycache__/
-*.pyc
+# Python
+__pycache__/
+*.py[cod]
+
+# Numba compile cache (lives inside __pycache__, listed in case it moves)
+*.nbi
+*.nbc
+
+# Tests and tools
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
 .venv/
+venv/
+env/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+
+# Run outputs
+results/
 output_*/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Other
 *.patch

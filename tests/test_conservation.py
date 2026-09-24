@@ -10,7 +10,7 @@ from venturi.projection import Projector
 
 @pytest.fixture(scope="module")
 def mesh():
-    cfg = VenturiConfig(D_inlet=0.1, beta=0.5, Nz=60, Nr=30)
+    cfg = VenturiConfig(D=0.1, beta=0.5, Nz=60, Nr=30)
     return build_fvmesh(create_venturi_geometry(cfg), 60, 30, 2.5)
 
 
@@ -25,14 +25,14 @@ def test_volume_matches_analytic_integral(mesh):
     the fluxes regardless of how accurate the volumes are.
     """
     from scipy.integrate import quad
-    geom = create_venturi_geometry(VenturiConfig(D_inlet=0.1, beta=0.5))
+    geom = create_venturi_geometry(VenturiConfig(D=0.1, beta=0.5))
     V, _ = quad(lambda z: np.pi * float(geom.radius(np.array([z]))[0]) ** 2,
                 0.0, geom.L_total, limit=400)
     assert abs(mesh.vol.sum() - V) / V < 1e-5
 
 
 def test_inlet_area_is_exact(mesh):
-    cfg = VenturiConfig(D_inlet=0.1, beta=0.5)
+    cfg = VenturiConfig(D=0.1, beta=0.5)
     assert mesh.A_ax[0].sum() == pytest.approx(np.pi * cfg.R_inlet ** 2, rel=1e-14)
 
 
@@ -91,3 +91,44 @@ def test_global_mass_balance(mesh):
 def test_poisson_matrix_is_symmetric(mesh):
     L = Projector(mesh).L
     assert abs(L - L.T).max() < 1e-9 * abs(L).max()
+
+
+# ---------------------------------------------------------------------------
+# Grid with shorter cells in the throat
+# ---------------------------------------------------------------------------
+@pytest.fixture(scope="module")
+def refined():
+    geom = create_venturi_geometry(VenturiConfig(D=0.1, beta=0.5))
+    return geom, build_fvmesh(geom, 60, 20, 2.5, throat_refine=3.0)
+
+
+def test_refine_1_gives_uniform_axial_faces():
+    geom = create_venturi_geometry(VenturiConfig(D=0.1, beta=0.5))
+    m = build_fvmesh(geom, 40, 10, 2.5, throat_refine=1.0)
+    np.testing.assert_array_equal(m.z_f, np.linspace(0.0, geom.L_total, 41))
+
+
+def test_refined_grid_is_denser_in_throat_and_smooth(refined):
+    geom, m = refined
+    dz = np.diff(m.z_f)
+    assert np.all(dz > 0.0)
+    assert m.z_f[0] == 0.0 and m.z_f[-1] == geom.L_total
+    zs = geom.z_stations
+    in_throat = (m.z_c > zs[2]) & (m.z_c < zs[3])
+    assert dz[in_throat].max() < dz.max() / 2.0
+    # neighbouring cells never differ by more than 30 % (at Nz = 60; less on finer grids)
+    assert np.max(np.maximum(dz[1:] / dz[:-1], dz[:-1] / dz[1:])) < 1.30
+
+
+def test_refined_grid_keeps_conservation(refined):
+    """GCL and exact projection must not depend on the axial spacing."""
+    _, m = refined
+    div = divergence(m.A_ax * 1.0, -m.Cz_rad * 1.0, m)
+    assert np.abs(div).max() / m.A_ax.max() < 1e-13
+    rng = np.random.default_rng(3)
+    F_ax = rng.normal(size=(m.Nz + 1, m.Nr)) * m.A_ax
+    F_rad = np.zeros((m.Nz, m.Nr + 1))
+    F_rad[:, 1:m.Nr] = rng.normal(size=(m.Nz, m.Nr - 1)) * m.A_rad[:, 1:m.Nr]
+    before = np.abs(divergence(F_ax, F_rad, m)).max()
+    F_ax_c, F_rad_c, _ = Projector(m).project(F_ax, F_rad)
+    assert np.abs(divergence(F_ax_c, F_rad_c, m)).max() / before < 1e-10

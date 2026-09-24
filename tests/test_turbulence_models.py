@@ -10,7 +10,7 @@ from venturi.turbulence import compute_nu_t, wall_y_plus, SUPPORTED
 
 @pytest.fixture(scope="module")
 def setup():
-    cfg = VenturiConfig(D_inlet=0.1, beta=0.5, Nz=40, Nr=24)
+    cfg = VenturiConfig(D=0.1, beta=0.5, Nz=40, Nr=24)
     mesh = build_fvmesh(create_venturi_geometry(cfg), 40, 24, 2.5)
     uz = np.tile(3.0 * (1.0 - (mesh.r_c / mesh.R_c[:, None]) ** 2) ** (1 / 7),
                  (1, 1))

@@ -116,8 +116,36 @@ def _radial_face_distribution(Nr: int, gamma: float) -> np.ndarray:
     return eta_f
 
 
+def _axial_face_distribution(L: float, Nz: int, z_a: float, z_b: float,
+                             refine: float) -> np.ndarray:
+    """Axial face positions, denser between z_a and z_b.
+
+    The wanted cell density (cells per metre) is
+
+        w(z) = 1 + (refine - 1) * g(z)
+
+    where g is a smooth step: about 1 between z_a and z_b, about 0 far from
+    them, with tanh ramps of width delta = (z_b - z_a) / 2 on each side. The
+    faces are placed so that every cell holds the same amount of w:
+    W(z) = integral of w from 0 to z, and face k sits where
+    W(z) = k * W(L) / Nz. Cells inside the zone are therefore about `refine`
+    times shorter than those far away, and the size changes gradually (no
+    jump between neighbouring cells). refine <= 1 gives uniform faces.
+    """
+    if refine <= 1.0 or z_b <= z_a:
+        return np.linspace(0.0, L, Nz + 1)
+    delta = 0.5 * (z_b - z_a)
+    z = np.linspace(0.0, L, 20001)
+    g = 0.5 * (np.tanh((z - z_a) / delta) - np.tanh((z - z_b) / delta))
+    w = 1.0 + (refine - 1.0) * g
+    W = np.concatenate(([0.0], np.cumsum(0.5 * (w[1:] + w[:-1]) * np.diff(z))))
+    z_f = np.interp(np.linspace(0.0, W[-1], Nz + 1), W, z)
+    z_f[0], z_f[-1] = 0.0, L
+    return z_f
+
+
 def build_fvmesh(geom, Nz: int, Nr: int, wall_clustering: float = 2.0,
-                 centroid: str = "midpoint") -> FVMesh:
+                 throat_refine: float = 1.0, centroid: str = "midpoint") -> FVMesh:
     """Build the finite-volume grid from the wall geometry.
 
     Args:
@@ -125,6 +153,9 @@ def build_fvmesh(geom, Nz: int, Nr: int, wall_clustering: float = 2.0,
         Nz: number of axial cells.
         Nr: number of radial cells.
         wall_clustering: gamma of the wall-clustering map.
+        throat_refine: how many times shorter the cells are in the throat
+            than far from it (1 = uniform axial spacing). The throat is the
+            straight piece between geom.z_stations[2] and [3].
         centroid: "midpoint" (default) or "volume". With a uniform radial
             distribution, "midpoint" places every face exactly halfway
             between the two neighbouring cell centres, which is the condition
@@ -135,8 +166,12 @@ def build_fvmesh(geom, Nz: int, Nr: int, wall_clustering: float = 2.0,
 
     L = float(geom.L_total)
 
-    # --- axial grid: uniform faces, centres at mid-cell ---------------------
-    z_f = np.linspace(0.0, L, Nz + 1)
+    # --- axial grid: faces denser in the throat, centres at mid-cell --------
+    zs = getattr(geom, "z_stations", None)
+    if zs is not None and throat_refine > 1.0:
+        z_f = _axial_face_distribution(L, Nz, float(zs[2]), float(zs[3]), throat_refine)
+    else:
+        z_f = np.linspace(0.0, L, Nz + 1)
     z_c = 0.5 * (z_f[:-1] + z_f[1:])
     dz = z_f[1:] - z_f[:-1]                       # (Nz,)
 
@@ -158,7 +193,7 @@ def build_fvmesh(geom, Nz: int, Nr: int, wall_clustering: float = 2.0,
     # --- cell volumes -------------------------------------------------------
     # V = integral over z of [ pi * (eta2^2 - eta1^2) * R(z)^2 ] dz.
     # The z integral uses 4-point Gauss-Legendre, exact for R(z)^2 up to
-    # degree 7, so the conical runs and the ISO blend arcs are captured with
+    # degree 7, so the cones and the rounded corner arcs are captured with
     # no appreciable quadrature error.
     zq = 0.5 * (z_f[:-1, None] + z_f[1:, None]) + 0.5 * dz[:, None] * _GL_X[None, :]
     wq = 0.5 * dz[:, None] * _GL_W[None, :]                      # (Nz, 4)

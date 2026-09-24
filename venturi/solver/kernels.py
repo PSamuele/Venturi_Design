@@ -334,3 +334,19 @@ def predict_fluxes(F_ax, F_rad, az, ar, A_ax, Cr, Cz, dt):
             afr = 0.5 * (ar[i, j - 1] + ar[i, j])
             F_rad[i, j] += dt * (Cr[i, j] * afr - Cz[i, j] * afz)
         # j = 0 (axis) and j = Nr (wall): flux imposed to zero
+
+
+@njit(cache=True)
+def max_change(a_new, a_old, b_new, b_old):
+    """max(|a_new - a_old|, |b_new - b_old|) over all cells, without temporaries."""
+    m = 0.0
+    Nz, Nr = a_new.shape
+    for i in range(Nz):
+        for j in range(Nr):
+            d = abs(a_new[i, j] - a_old[i, j])
+            if d > m:
+                m = d
+            d = abs(b_new[i, j] - b_old[i, j])
+            if d > m:
+                m = d
+    return m

@@ -56,7 +56,7 @@ from ..projection import Projector
 from ..turbulence import compute_nu_t, wall_y_plus
 from .kernels import (reconstruct, explicit_rhs, radial_explicit,
                       implicit_radial, timestep, timestep_radial,
-                      predict_fluxes)
+                      predict_fluxes, max_change)
 
 
 @dataclass
@@ -204,10 +204,16 @@ def solve_fv(mesh: FVMesh, config, verbose: bool = True,
     dt = 0.0
     n = 0
 
-    for n in range(1, int(config.max_iter) + 1):
-        uz_prev = uz.copy()
-        ur_prev = ur.copy()
+    # Work buffers, allocated once: the loop runs ~1e5 times, so any array
+    # created inside it costs more than the arithmetic done on it.
+    uz_new = np.empty((Nz, Nr))
+    ur_new = np.empty((Nz, Nr))
+    nu_eff = np.empty((Nz, Nr))
+    if radial_implicit:
+        F_ax_star = np.empty_like(F_ax)
+        F_rad_star = np.empty_like(F_rad)
 
+    for n in range(1, int(config.max_iter) + 1):
         if (n - 1) % turb_every == 0:
             nu_t_new = compute_nu_t(uz, ur, mesh, nu_lam, config.turbulence_model)
             # Under-relaxation: the algebraic model derives nu_t from a
@@ -217,7 +223,7 @@ def solve_fv(mesh: FVMesh, config, verbose: bool = True,
             # which then stops falling monotonically even though the solution
             # is perfectly stable.
             nu_t = (1.0 - turb_relax) * nu_t + turb_relax * nu_t_new
-        nu_eff = nu_lam + nu_t
+        np.add(nu_t, nu_lam, out=nu_eff)
 
         explicit_rhs(uz, ur, F_ax, F_rad, nu_eff, nu_lam,
                       c_ax_diff, c_rad, c_in, mesh.vol, uz_in, az_e, ar_e)
@@ -240,10 +246,11 @@ def solve_fv(mesh: FVMesh, config, verbose: bool = True,
 
         predict_fluxes(F_ax, F_rad, az, ar, mesh.A_ax,
                         mesh.Cr_rad, mesh.Cz_rad, dt)
-        F_ax_star = F_ax.copy()
-        F_rad_star = F_rad.copy()
+        if radial_implicit:
+            F_ax_star[...] = F_ax
+            F_rad_star[...] = F_rad
 
-        F_ax, F_rad, phi = proj.project(F_ax, F_rad)
+        phi = proj.project_inplace(F_ax, F_rad)
 
         if radial_implicit:
             # The flux correction is the effect of the pressure correction:
@@ -258,19 +265,18 @@ def solve_fv(mesh: FVMesh, config, verbose: bool = True,
             gz += p_relax * dgz / dt
             gr += p_relax * dgr / dt
             p_acc += p_relax * (rho / dt) * phi
-        else:
-            # Explicit path: the projection supplies the entire pressure
-            # gradient at every step, so p = rho*phi/dt with no accumulation
-            # and no under-relaxation.
-            p_acc = (rho / dt) * phi
+        # Explicit path: the projection supplies the entire pressure gradient
+        # at every step, so p = rho*phi/dt with no accumulation. It is only
+        # needed at the end, so it is computed after the loop.
 
-        reconstruct(F_ax, F_rad, mesh.A_ax, mesh.Cr_rad, mesh.Cz_rad, uz, ur)
+        reconstruct(F_ax, F_rad, mesh.A_ax, mesh.Cr_rad, mesh.Cz_rad, uz_new, ur_new)
 
         # Dimensionless steady residual: |du/dt| * L / U^2.
         # Dividing by dt is essential: without it the residual falls simply
         # by shrinking the time step, with the solution no closer to steady.
-        d = max(float(np.abs(uz - uz_prev).max()), float(np.abs(ur - ur_prev).max()))
-        residual = d / dt * res_scale
+        residual = max_change(uz_new, uz, ur_new, ur) / dt * res_scale
+        uz, uz_new = uz_new, uz
+        ur, ur_new = ur_new, ur
         history.append(residual)
 
         if verbose and (n == 1 or n % 5000 == 0):
@@ -286,7 +292,10 @@ def solve_fv(mesh: FVMesh, config, verbose: bool = True,
     # --- pressure -----------------------------------------------------------
     # Zero on the outlet face by construction. The field is then shifted so
     # that the mean inlet pressure matches the value imposed by the user.
-    p = p_acc
+    if radial_implicit:
+        p = p_acc
+    else:
+        p = (rho / dt) * phi if dt > 0.0 else np.zeros((Nz, Nr))
     p_in_mean = float(np.sum(p[0, :] * mesh.A_ax[0, :]) / mesh.A_ax[0, :].sum())
     p = p + (float(config.p_inlet) - p_in_mean)
 

@@ -38,6 +38,16 @@ run time (single CPU core, measured):
 """
 
 
+def _refine(text: str):
+    """--throat-refine accepts 'auto' or a number."""
+    if text.strip().lower() == "auto":
+        return "auto"
+    try:
+        return float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected 'auto' or a number, got '{text}'")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="venturi", description="Design a Venturi tube and check it with a flow simulation.",
@@ -67,13 +77,17 @@ def build_parser() -> argparse.ArgumentParser:
     a("--Nr", type=int, default=36, help="Cells along the radius (default 36).")
     a("--clustering", type=float, default=2.7,
       help="Wall clustering: 0 = even cells, larger = thinner cells at the wall.")
-    a("--throat-refine", type=float, default=4.0,
-      help="Make the cells in the throat this many times shorter (1 = even spacing, default 4).")
+    a("--throat-refine", type=_refine, default="auto",
+      help="How many times shorter the throat cells are: 'auto' (default) "
+           "= 1/beta^2, capped at 6, or a number >= 1 (1 = even spacing).")
     a("--turbulence", default="baldwin_lomax", choices=list(TURBULENCE_MODELS),
       help="Turbulence model (default baldwin_lomax).")
     a("--max-iter", type=int, default=400000, help="Iteration limit.")
     a("--tol", type=float, default=1e-3, help="Steady-state target for the residual.")
     a("--cfl", type=float, default=0.6, help="CFL number, the time step safety factor.")
+    a("--time-step", default="local", choices=["local", "global"],
+      help="local: each cell takes its own largest stable step (default); "
+           "global: all cells take the smallest one (slower, same result).")
 
     a("--cd-ref", type=float, default=None,
       help="Reference C_d to compare with (for example from a datasheet).")
@@ -155,7 +169,7 @@ def config_from_args(args) -> VenturiConfig:
         fluid=args.fluid, rho=args.rho, mu=args.mu, p_vap=args.p_vap,
         Nz=args.Nz, Nr=args.Nr, wall_clustering=args.clustering,
         throat_refine=args.throat_refine,
-        turbulence_model=args.turbulence, cfl=args.cfl,
+        turbulence_model=args.turbulence, cfl=args.cfl, time_step=args.time_step,
         max_iter=args.max_iter, tol=args.tol,
         output_dir=args.output_dir or default_output_dir(args))
 

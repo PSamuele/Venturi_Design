@@ -117,7 +117,7 @@ def _radial_face_distribution(Nr: int, gamma: float) -> np.ndarray:
 
 
 def _axial_face_distribution(L: float, Nz: int, z_a: float, z_b: float,
-                             refine: float) -> np.ndarray:
+                             refine: float, max_ratio: float = 1.2) -> np.ndarray:
     """Axial face positions, denser between z_a and z_b.
 
     The wanted cell density (cells per metre) is
@@ -125,22 +125,29 @@ def _axial_face_distribution(L: float, Nz: int, z_a: float, z_b: float,
         w(z) = 1 + (refine - 1) * g(z)
 
     where g is a smooth step: about 1 between z_a and z_b, about 0 far from
-    them, with tanh ramps of width delta = (z_b - z_a) / 2 on each side. The
-    faces are placed so that every cell holds the same amount of w:
-    W(z) = integral of w from 0 to z, and face k sits where
-    W(z) = k * W(L) / Nz. Cells inside the zone are therefore about `refine`
-    times shorter than those far away, and the size changes gradually (no
-    jump between neighbouring cells). refine <= 1 gives uniform faces.
+    them, with tanh ramps of width delta on each side. The faces are placed
+    so that every cell holds the same amount of w: W(z) = integral of w from
+    0 to z, and face k sits where W(z) = k * W(L) / Nz. Cells inside the zone
+    are therefore about `refine` times shorter than those far away.
+
+    delta starts at half the zone length and is widened (x1.25 at a time)
+    until no cell is more than max_ratio times longer than its neighbour,
+    so the change of size is always gradual. refine <= 1 gives uniform faces.
     """
     if refine <= 1.0 or z_b <= z_a:
         return np.linspace(0.0, L, Nz + 1)
-    delta = 0.5 * (z_b - z_a)
     z = np.linspace(0.0, L, 20001)
-    g = 0.5 * (np.tanh((z - z_a) / delta) - np.tanh((z - z_b) / delta))
-    w = 1.0 + (refine - 1.0) * g
-    W = np.concatenate(([0.0], np.cumsum(0.5 * (w[1:] + w[:-1]) * np.diff(z))))
-    z_f = np.interp(np.linspace(0.0, W[-1], Nz + 1), W, z)
-    z_f[0], z_f[-1] = 0.0, L
+    delta = 0.5 * (z_b - z_a)
+    for _ in range(40):
+        g = 0.5 * (np.tanh((z - z_a) / delta) - np.tanh((z - z_b) / delta))
+        w = 1.0 + (refine - 1.0) * g
+        W = np.concatenate(([0.0], np.cumsum(0.5 * (w[1:] + w[:-1]) * np.diff(z))))
+        z_f = np.interp(np.linspace(0.0, W[-1], Nz + 1), W, z)
+        z_f[0], z_f[-1] = 0.0, L
+        dz = np.diff(z_f)
+        if np.max(np.maximum(dz[1:] / dz[:-1], dz[:-1] / dz[1:])) <= max_ratio:
+            break
+        delta *= 1.25
     return z_f
 
 

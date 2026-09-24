@@ -149,3 +149,26 @@ def test_throat_refine_below_1_is_rejected():
 def test_throat_refine_option_reaches_the_config():
     c = config_from_args(build_parser().parse_args(["--throat-refine", "2.5"]))
     assert c.throat_refine == 2.5
+
+
+@pytest.mark.parametrize("beta", [0.45, 0.5, 0.6, 0.75])
+def test_auto_throat_refine_is_one_over_beta_squared(beta):
+    """Same crossing time per cell in pipe and throat: dz_t / v_t = dz_p / v_p."""
+    c = VenturiConfig(beta=beta)
+    assert c.throat_refine == pytest.approx(1.0 / beta**2)
+    assert c.throat_refine == pytest.approx(c.v_throat / c.v_inlet)
+    assert not c.throat_refine_capped
+
+
+def test_auto_throat_refine_is_capped_with_a_warning():
+    c = VenturiConfig(beta=0.3)
+    assert c.throat_refine == 6.0 and c.throat_refine_capped
+    assert any("capped" in w for w in c.warnings())
+
+
+def test_time_step_option():
+    assert config_from_args(build_parser().parse_args([])).time_step == "local"
+    c = config_from_args(build_parser().parse_args(["--time-step", "global"]))
+    assert c.time_step == "global"
+    with pytest.raises(ValueError):
+        VenturiConfig(time_step="implicit")

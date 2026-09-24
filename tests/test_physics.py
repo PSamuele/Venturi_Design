@@ -27,7 +27,7 @@ class StraightPipe:
 def _pipe_config(**kw):
     base = dict(rho=RHO, nu=NU, v_inlet=V_MEAN, v_throat=V_MEAN, R_inlet=R_PIPE,
                 p_inlet=0.0, Re_D=RHO * V_MEAN * 2 * R_PIPE / MU,
-                max_iter=60000, tol=1e-7, cfl=0.5,
+                max_iter=60000, tol=1e-7, cfl=0.5, time_step="local",
                 turbulence_model="laminar")
     base.update(kw)
     return SimpleNamespace(**base)
@@ -94,3 +94,24 @@ def test_inlet_profile_shape_depends_on_regime():
     turb = inlet_profile(mesh, 1.0e5, Q)
     assert lam[0] / V_MEAN == pytest.approx(2.0, rel=0.02)
     assert 1.1 < turb[0] / V_MEAN < 1.35
+
+
+def test_local_and_global_time_step_give_the_same_answer():
+    """Same steady state whether every cell has its own step or all share one."""
+    mesh = build_fvmesh(StraightPipe(), 40, 20, 0.0)
+    pm = lambda r, i: float(np.sum(r.p[i] * mesh.A_ax[i]) / mesh.A_ax[i].sum())
+    res = {mode: solve_fv(mesh, _pipe_config(time_step=mode), verbose=False)
+           for mode in ("local", "global")}
+    g = [(pm(r, 20) - pm(r, 37)) / (mesh.z_c[37] - mesh.z_c[20]) for r in res.values()]
+    assert abs(g[0] - g[1]) / abs(g[1]) < 1e-6
+    assert np.abs(res["local"].uz - res["global"].uz).max() / (2 * V_MEAN) < 1e-6
+
+
+def test_steady_state_independent_of_timestep_global_mode():
+    mesh = build_fvmesh(StraightPipe(), 40, 20, 0.0)
+    pm = lambda r, i: float(np.sum(r.p[i] * mesh.A_ax[i]) / mesh.A_ax[i].sum())
+    vals = []
+    for cfl in (0.6, 0.15):
+        r = solve_fv(mesh, _pipe_config(cfl=cfl, time_step="global"), verbose=False)
+        vals.append((pm(r, 20) - pm(r, 37)) / (mesh.z_c[37] - mesh.z_c[20]))
+    assert abs(vals[0] - vals[1]) / abs(vals[0]) < 1e-6

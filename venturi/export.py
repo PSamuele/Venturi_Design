@@ -25,120 +25,109 @@ from .geometry import VenturiGeometry, profile_points, radius_at
 from .compat import MeshView as VenturiMesh
 
 
-def export_paraview_2d(mesh: VenturiMesh, uz: np.ndarray, ur: np.ndarray, p: np.ndarray, config: VenturiConfig) -> str:
-    """Export the 2D grid as a .vts file for ParaView."""
-    filepath = os.path.join(config.output_dir, "venturi_cfd_2d.vts")
+def _point_array(a: np.ndarray) -> np.ndarray:
+    """Ravel a structured field in the order PyVista uses for the points.
+
+    pv.StructuredGrid(x, y, z) flattens the coordinate arrays in Fortran
+    order (first index fastest). Point data must be flattened the same way,
+    otherwise every value lands on the wrong point.
+    """
+    return np.asarray(a).ravel(order="F")
+
+
+def _attach_fields(grid, uz: np.ndarray, ur_y: np.ndarray, ur_z: np.ndarray,
+                   p: np.ndarray) -> None:
+    """Attach velocity (x = axial) and pressure to a structured grid."""
+    grid.point_data['Velocity'] = np.column_stack(
+        (_point_array(uz), _point_array(ur_y), _point_array(ur_z)))
+    grid.point_data['Velocity_Magnitude'] = _point_array(np.sqrt(uz**2 + ur_y**2 + ur_z**2))
+    grid.point_data['Pressure'] = _point_array(p)
+
+
+def export_paraview_2d(mesh: VenturiMesh, uz: np.ndarray, ur: np.ndarray, p: np.ndarray,
+                       config: VenturiConfig) -> str | None:
+    """Export the meridional plane as a .vts file (x = axial, y = radial)."""
     if pv is None:
-        print("Warning: pyvista is not installed; cannot export vts.")
-        return filepath
+        print("Warning: pyvista is not installed; skipping .vts export.")
+        return None
+    filepath = os.path.join(config.output_dir, "venturi_cfd_2d.vts")
 
-    # PyVista uses 3D coordinates. x=z, y=r, z=0
-    x = mesh.z
-    y = mesh.r
-    z = np.zeros_like(x)
-    grid = pv.StructuredGrid(x, y, z)
-
-    vel_mag = np.sqrt(uz**2 + ur**2)
-    velocity_vec = np.column_stack((uz.ravel(), ur.ravel(), np.zeros_like(uz.ravel())))
-
-    grid.point_data['Velocity'] = velocity_vec
-    grid.point_data['Velocity_Magnitude'] = vel_mag.ravel()
-    grid.point_data['Pressure'] = p.ravel()
-    grid.point_data['Axial_Velocity'] = uz.ravel()
-    grid.point_data['Radial_Velocity'] = ur.ravel()
-
+    grid = pv.StructuredGrid(mesh.z, mesh.r, np.zeros_like(mesh.z))
+    _attach_fields(grid, uz, ur, np.zeros_like(ur), p)
+    grid.point_data['Axial_Velocity'] = _point_array(uz)
+    grid.point_data['Radial_Velocity'] = _point_array(ur)
     grid.save(filepath)
     return filepath
 
 
-def export_paraview_3d(mesh: VenturiMesh, uz: np.ndarray, ur: np.ndarray, p: np.ndarray, config: VenturiConfig) -> str:
-    """Export the revolved 3D mesh as a .vtp file for ParaView."""
-    filepath = os.path.join(config.output_dir, "venturi_cfd_3d.vtp")
+def export_paraview_3d(mesh: VenturiMesh, uz: np.ndarray, ur: np.ndarray, p: np.ndarray,
+                       config: VenturiConfig, n_theta: int = 72) -> str | None:
+    """Export the full 3D field as a .vts volume, revolved about the x axis.
+
+    The meridional grid (Nz, Nr) is rotated through n_theta steps, giving a
+    (Nz, Nr, n_theta+1) structured volume of hexahedra. The radial velocity
+    is decomposed along y and z. As in the 2D file the points are the cell
+    centres, so the volume stops half a cell short of the wall and of the axis.
+    """
     if pv is None:
-        print("Warning: pyvista is not installed; cannot export vtp.")
-        return filepath
+        print("Warning: pyvista is not installed; skipping 3D .vts export.")
+        return None
+    filepath = os.path.join(config.output_dir, "venturi_cfd_3d.vts")
 
-    x = mesh.z
-    y = mesh.r
-    z = np.zeros_like(x)
-    grid = pv.StructuredGrid(x, y, z)
+    th = np.linspace(0.0, 2.0 * np.pi, n_theta + 1)[None, None, :]
+    z3 = np.repeat(mesh.z[:, :, None], th.shape[2], axis=2)
+    r3 = mesh.r[:, :, None]
+    grid = pv.StructuredGrid(z3, r3 * np.cos(th), r3 * np.sin(th))
 
-    vel_mag = np.sqrt(uz**2 + ur**2)
-    velocity_vec = np.column_stack((uz.ravel(), ur.ravel(), np.zeros_like(uz.ravel())))
-    
-    grid.point_data['Velocity'] = velocity_vec
-    grid.point_data['Velocity_Magnitude'] = vel_mag.ravel()
-    grid.point_data['Pressure'] = p.ravel()
-
-    # Create 3D by revolving the 2D plane
-    poly = grid.extract_surface(algorithm='dataset_surface')
-    
-    try:
-        revolved = poly.revolve(angle=360, resolution=72)
-    except AttributeError:
-        # Fallback to extrude_rotate if revolve is not an attribute
-        revolved = poly.extrude_rotate(resolution=72, angle=360.0, capping=False)
-
-    revolved.save(filepath)
+    rep = lambda a: np.repeat(a[:, :, None], th.shape[2], axis=2)
+    ur3 = ur[:, :, None]
+    _attach_fields(grid, rep(uz), ur3 * np.cos(th), ur3 * np.sin(th), rep(p))
+    grid.save(filepath)
     return filepath
 
 
-def export_dxf(geom: VenturiGeometry, config: VenturiConfig) -> str:
+def export_dxf(geom: VenturiGeometry, config: VenturiConfig) -> str | None:
     """Export the 2D wall profile to DXF."""
-    filepath = os.path.join(config.output_dir, "venturi_profile.dxf")
     if ezdxf is None:
-        print("Warning: ezdxf is not installed; cannot export dxf.")
-        return filepath
+        print("Warning: ezdxf is not installed; skipping .dxf export.")
+        return None
+    filepath = os.path.join(config.output_dir, "venturi_profile.dxf")
 
-    doc = ezdxf.new('R2010')
+    # setup=True loads the standard linetypes, including CENTER
+    doc = ezdxf.new('R2010', setup=True)
     msp = doc.modelspace()
 
-    doc.layers.add('PROFILE_INNER', color=1)
-    doc.layers.add('PROFILE_OUTER', color=2)
+    doc.layers.add('PROFILE_UPPER', color=1)
+    doc.layers.add('PROFILE_LOWER', color=2)
     doc.layers.add('CENTERLINE', color=3, linetype='CENTER')
-    doc.layers.add('DIMENSIONS', color=4)
 
     z_arr, r_arr = profile_points(geom, n_points=200)
-
-    # Inner profile (wetted surface)
-    points_inner = [(z, r) for z, r in zip(z_arr, r_arr)]
-    msp.add_lwpolyline(points_inner, dxfattribs={'layer': 'PROFILE_INNER'})
-
-    # Outer profile (mirrored)
-    points_outer = [(z, -r) for z, r in zip(z_arr, r_arr)]
-    msp.add_lwpolyline(points_outer, dxfattribs={'layer': 'PROFILE_OUTER'})
-
-    # Centerline
+    msp.add_lwpolyline(list(zip(z_arr, r_arr)), dxfattribs={'layer': 'PROFILE_UPPER'})
+    msp.add_lwpolyline(list(zip(z_arr, -r_arr)), dxfattribs={'layer': 'PROFILE_LOWER'})
     msp.add_line((0, 0), (geom.L_total, 0), dxfattribs={'layer': 'CENTERLINE'})
 
     doc.saveas(filepath)
     return filepath
 
 
-def export_stl(geom: VenturiGeometry, config: VenturiConfig) -> str:
-    """Export the 3D Venturi surface to STL."""
-    filepath = os.path.join(config.output_dir, "venturi_3d.stl")
+def export_stl(geom: VenturiGeometry, config: VenturiConfig) -> str | None:
+    """Export the wetted wall as an STL surface, revolved about the x axis."""
     if pv is None:
-        print("Warning: pyvista is not installed; cannot export stl.")
-        return filepath
+        print("Warning: pyvista is not installed; skipping .stl export.")
+        return None
+    filepath = os.path.join(config.output_dir, "venturi_3d.stl")
 
     z_arr, r_arr = profile_points(geom, n_points=200)
     points = np.column_stack((z_arr, r_arr, np.zeros_like(z_arr)))
-    
-    # Create line from points
-    lines = np.empty((len(points) - 1, 3), dtype=int)
-    lines[:, 0] = 2
-    lines[:, 1] = np.arange(0, len(points) - 1)
-    lines[:, 2] = np.arange(1, len(points))
-    
+    n = len(points)
+    # VTK cell array: [2, i0, i1, 2, i1, i2, ...]
+    lines = np.column_stack((np.full(n - 1, 2), np.arange(n - 1), np.arange(1, n))).ravel()
     line_poly = pv.PolyData(points, lines=lines)
-    
-    try:
-        surf = line_poly.revolve(angle=360, resolution=72)
-    except AttributeError:
-        surf = line_poly.extrude_rotate(resolution=72, angle=360.0, capping=False)
 
-    surf.save(filepath)
+    # The default rotation axis of extrude_rotate is z; the tube axis here is x.
+    surf = line_poly.extrude_rotate(resolution=72, angle=360.0, capping=False,
+                                    rotation_axis=(1.0, 0.0, 0.0))
+    surf.triangulate().save(filepath)
     return filepath
 
 
@@ -388,5 +377,8 @@ def export_all(mesh: VenturiMesh, uz: np.ndarray, ur: np.ndarray, p: np.ndarray,
     f = export_report(config, geom, validation_results)
     if f: files.append(f); print(f"      OK {f}")
         
-    print("Export completed successfully.")
-    return files
+    missing = [f for f in files if not os.path.isfile(f)]
+    for f in missing:
+        print(f"Warning: {f} was reported but not found on disk.")
+    print("Export completed.")
+    return [f for f in files if f not in missing]

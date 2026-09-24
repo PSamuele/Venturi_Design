@@ -2,9 +2,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)
-![Tested](https://img.shields.io/badge/Tested-Linux%20%7C%20Python%203.12-lightgrey)
+![Tested](https://img.shields.io/badge/Tested-Linux%203.12%20%7C%20Windows%203.14-lightgrey)
 ![Solver](https://img.shields.io/badge/Solver-NumPy%20%7C%20SciPy%20%7C%20Numba-orange)
-![Tests](https://img.shields.io/badge/Tests-20-green)
+![Tests](https://img.shields.io/badge/Tests-25-green)
 
 A parametric Venturi tube designer with its own CFD solver attached.
 
@@ -20,7 +20,7 @@ the solver is roughly 900 lines of Python with Numba kernels.
 
 ## Running it
 
-Python 3.10+. I've only tested it on 3.12 under Linux.
+Python 3.10+. Tested on 3.12 under Linux and on 3.14 under Windows.
 
 ```bash
 python3 -m venv .venv
@@ -38,9 +38,11 @@ it's cached.
 `cadquery` isn't in requirements.txt on purpose. Install it if you want STEP
 output; without it you still get the other nine files and a warning.
 
-You end up with `.vts`/`.vtp` for ParaView, a `.dxf` of the profile, an
-`.stl`, two `.svg` figures, a point cloud in `.ply` and `.csv`, and a
-Markdown report.
+You end up with two `.vts` files for ParaView (the meridional plane and the
+field revolved into a 3D volume), a `.dxf` of the profile, an `.stl` of the
+wall, two `.svg` figures, a point cloud in `.ply` and `.csv`, and a Markdown
+report. If pyvista or ezdxf is missing, the files that need it are skipped
+with a warning and are not listed as written.
 
 ## Speed
 
@@ -137,10 +139,7 @@ Two things I have *not* shown:
 
 ## The slow bit
 
-Radial diffusion in the thin wall cells sets the time step. Those cells are
-thin because you want y+ near 1, and eddy viscosity peaks there at roughly
-200x molecular, so the diffusive limit ends up about 30x tighter than the
-convective one. Hence six-figure iteration counts.
+Radial diffusion in the thin wall cells sets the time step. Those cells are thin because you want y+ near 1, and eddy viscosity peaks there at roughly 600x molecular, so the diffusive limit ends up about 4x tighter than the convective one at CFL 0.6. Hence six-figure iteration counts.
 
 The implicit accelerator is still in the code:
 

@@ -32,9 +32,9 @@ examples:
   python main.py --fluid custom --rho 1.2 --mu 1.8e-5 --p-inlet 200000 --p-throat 180000
   python main.py --list-fluids
 
-run time (single CPU core, measured):
-  90 x 36 grid   about 1 minute (default)
-  finer grids take much longer: see "Speed" in the README
+run time (single CPU core):
+  90 x 36 grid (default)   about 10 s
+  128 x 51 grid            about 35 s, see "Speed" in the README
 """
 
 

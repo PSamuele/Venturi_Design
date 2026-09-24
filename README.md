@@ -20,7 +20,7 @@ underneath: the solver is plain Python with Numba for the heavy loops.
 
 ## Running it
 
-Python 3.10 or newer.
+Python 3.10 or newer. I've run it on Python 3.11 under Linux and 3.14 under Windows.
 
 ```bash
 python3 -m venv .venv
@@ -34,6 +34,10 @@ python main.py --help                # every option
 python -m venturi.grid_study         # same case on 3 grids, error estimate
 pytest tests/
 ```
+
+On Windows, PowerShell may refuse to run `activate` ("running scripts is
+disabled on this system"). `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
+allows it for that window only.
 
 The second line is the default case: water at 20 C, 100 mm pipe, 50 mm
 throat, 6325 Pa pressure drop. It takes about 10 seconds. The very first run
@@ -392,6 +396,7 @@ venturi/
   optimizer.py             quick choice of D, beta, angle (interactive mode 2)
   export/                  paraview.py, cad.py, plots.py, tables.py
 tests/
+pytest.ini                 tells pytest where the package is
 results/                   made by the runs, not in git
 ```
 

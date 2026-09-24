@@ -16,6 +16,9 @@ larger than the ideal one. dp is measured between two pressure taps:
     upstream tap : 0.5 D before the start of the converging cone
     throat tap   : middle of the throat
 
+Both taps read the pressure at the wall, like the small holes of a real
+tube. The difference of the section-averaged pressures is also reported.
+
 The upstream tap sits before the cone rather than at the domain inlet, so
 the friction loss of the inlet pipe run is not counted.
 
@@ -56,6 +59,7 @@ class ValidationReport:
     Cd: float = 0.0
     Cd_ref: Optional[float] = None
     dp_measured: float = 0.0
+    dp_section_mean: float = 0.0
     dp_ideal: float = 0.0
     pressure_recovery: float = 0.0
     p_min: float = 0.0
@@ -66,15 +70,22 @@ class ValidationReport:
         return all(c.passed for c in self.checks)
 
 
-def _section_mean(p: np.ndarray, mesh, i: int) -> float:
-    """Pressure of cell row i averaged over the cross-section (area weighted)."""
-    w = mesh.A_ax[i, :]
+def section_mean(p: np.ndarray, mesh, i: int) -> float:
+    """Pressure of cell row i averaged over the cross-section (volume weighted)."""
+    w = mesh.vol[i, :]
     return float(np.sum(p[i, :] * w) / np.sum(w))
 
 
 def tap_pressure(p: np.ndarray, mesh, i: int) -> float:
-    """Pressure a tap in the wall at cell row i would read."""
-    return _section_mean(p, mesh, i)
+    """Pressure a tap drilled in the wall at cell row i would read.
+
+    A real tap is a small hole in the wall, so it reads the pressure AT the
+    wall. The pressure hardly changes across the thin wall cell (the flow
+    there is parallel to the wall), so the wall cell value is used. Where the
+    streamlines are curved the pressure differs between wall and axis, and
+    the section mean would not be what a tap measures.
+    """
+    return float(p[i, -1])
 
 
 def validate(result, mesh, geom, config, cd_ref: Optional[float] = None,
@@ -101,6 +112,8 @@ def validate(result, mesh, geom, config, cd_ref: Optional[float] = None,
     p_out = tap_pressure(result.p, mesh, mesh.Nz - 1)
     dp = p_up - p_th
     rep.dp_measured = dp
+    rep.dp_section_mean = (section_mean(result.p, mesh, i_up)
+                           - section_mean(result.p, mesh, i_th))
     rep.dp_ideal = float(config.dp_ideal)
     rep.pressure_recovery = (p_out - p_th) / dp if dp != 0.0 else 0.0
 
@@ -144,7 +157,7 @@ def validate(result, mesh, geom, config, cd_ref: Optional[float] = None,
             rep.p_min > config.p_vap, "lowest pressure in the whole field [Pa]"))
 
     # --------------------------------------------------- discharge coefficient
-    A_th = float(mesh.A_ax[i_th, :].sum())
+    A_th = math.pi * geom.R_throat ** 2
     if dp > 0.0:
         rep.Cd = Q_in / (A_th * math.sqrt(2.0 * dp / (rho * (1.0 - beta ** 4))))
     else:
@@ -167,7 +180,8 @@ def print_report(rep: ValidationReport) -> None:
             print(f"             {c.note}")
     print("      " + "-" * 60)
     print(f"      C_d (computed)          : {rep.Cd:.4f}")
-    print(f"      dp between the taps     : {rep.dp_measured:.1f} Pa")
+    print(f"      dp between the wall taps: {rep.dp_measured:.1f} Pa")
+    print(f"      dp of section averages  : {rep.dp_section_mean:.1f} Pa (for comparison)")
     print(f"      dp without friction     : {rep.dp_ideal:.1f} Pa (for comparison)")
     print(f"      pressure recovered      : {rep.pressure_recovery*100:.1f} % of dp")
     for w in rep.warnings:
@@ -182,7 +196,8 @@ def to_dict(rep: ValidationReport) -> Dict[str, Any]:
     d["C_d computed"] = round(rep.Cd, 4)
     if rep.Cd_ref is not None:
         d["C_d reference"] = rep.Cd_ref
-    d["dp between taps [Pa]"] = round(rep.dp_measured, 1)
+    d["dp between wall taps [Pa]"] = round(rep.dp_measured, 1)
+    d["dp of section averages [Pa]"] = round(rep.dp_section_mean, 1)
     d["dp without friction [Pa]"] = round(rep.dp_ideal, 1)
     d["pressure recovered [%]"] = round(rep.pressure_recovery * 100.0, 1)
     d["lowest pressure [Pa]"] = round(rep.p_min, 1)

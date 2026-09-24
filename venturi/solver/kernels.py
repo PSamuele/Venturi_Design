@@ -56,7 +56,7 @@ def _tvd(phi_far, phi_up, phi_down):
 
 
 @njit(cache=True, fastmath=True)
-def explicit_rhs(uz, ur, F_ax, F_rad, nu_eff, nu_lam,
+def explicit_rhs(uz, ur, F_ax, F_rad, nu_eff,
                   c_ax, c_rad, c_in, vol, uz_in, az, ar):
     """Explicit part of the accelerations: convection + axial diffusion.
 
@@ -78,8 +78,12 @@ def explicit_rhs(uz, ur, F_ax, F_rad, nu_eff, nu_lam,
         F = F_ax[0, j]
         az[0, j] += F * uz_in[j]
         ar[0, j] += 0.0
-        az[0, j] += nu_lam * c_in[j] * (uz_in[j] - uz[0, j])
-        ar[0, j] += nu_lam * c_in[j] * (0.0 - ur[0, j])
+        # Diffusion through the inlet face. The eddy viscosity of the
+        # incoming flow is taken equal to that of the first cell (zero
+        # gradient); using the molecular value here would switch turbulent
+        # mixing off right at the inlet.
+        az[0, j] += nu_eff[0, j] * c_in[j] * (uz_in[j] - uz[0, j])
+        ar[0, j] += nu_eff[0, j] * c_in[j] * (0.0 - ur[0, j])
 
         for i in range(1, Nz):
             F = F_ax[i, j]
@@ -267,8 +271,13 @@ def implicit_radial(uz, ur, az_e, ar_e, nu_eff, nu_lam, c_rad, cw1, cw2,
 
 
 @njit(cache=True, fastmath=True)
-def timestep_radial(nu_eff, nu_lam, c_rad, cw1, vol):
-    """Radial diffusive limit, needed only on the explicit path."""
+def timestep_radial(nu_eff, nu_lam, c_rad, cw1, vol, r_c):
+    """Radial diffusive limit, needed only on the explicit path.
+
+    The u_r equation also has the decay term -nu_eff * u_r / r^2, which is
+    treated explicitly too. Its rate nu_eff / r^2 is added to the diffusion
+    rate s / V, so the limit covers both.
+    """
     Nz, Nr = vol.shape
     dt = 1.0e30
     for i in range(Nz):
@@ -280,15 +289,16 @@ def timestep_radial(nu_eff, nu_lam, c_rad, cw1, vol):
                 s += 0.5 * (nu_eff[i, j] + nu_eff[i, j + 1]) * c_rad[i, j + 1]
             else:
                 s += nu_lam * cw1[i]
-            if s > 1e-30:
-                d = 0.5 * vol[i, j] / s
+            rate = s / vol[i, j] + 0.5 * nu_eff[i, j] / (r_c[i, j] * r_c[i, j])
+            if rate > 1e-30:
+                d = 0.5 / rate
                 if d < dt:
                     dt = d
     return dt
 
 
 @njit(cache=True, fastmath=True)
-def timestep(F_ax, F_rad, nu_eff, nu_lam, c_ax, c_in, vol, cfl):
+def timestep(F_ax, F_rad, nu_eff, c_ax, c_in, vol, cfl):
     """Global time step from the convective (CFL) and axial diffusive limits."""
     Nz, Nr = vol.shape
     dt = 1.0e30
@@ -299,7 +309,7 @@ def timestep(F_ax, F_rad, nu_eff, nu_lam, c_ax, c_in, vol, cfl):
 
             nu_w = nu_eff[i, j]
             sum_nc = 0.0
-            sum_nc += (nu_lam * c_in[j]) if i == 0 else \
+            sum_nc += (nu_w * c_in[j]) if i == 0 else \
                 (0.5 * (nu_eff[i - 1, j] + nu_w) * c_ax[i, j])
             if i < Nz - 1:
                 sum_nc += 0.5 * (nu_eff[i + 1, j] + nu_w) * c_ax[i + 1, j]

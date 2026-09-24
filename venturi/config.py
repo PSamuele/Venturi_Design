@@ -27,7 +27,10 @@ from typing import List, Optional
 
 from .fluids import FLUIDS
 
-SPEED_OF_SOUND_GAS = 343.0   # air at 20 C [m/s], used only for the Mach warning
+# Air as an ideal gas, used only for the Mach number warning.
+# Speed of sound a = sqrt(GAMMA * R * T), T in kelvin.
+GAMMA_AIR = 1.4
+R_AIR = 287.05          # [J/(kg K)]
 
 
 @dataclass
@@ -77,6 +80,7 @@ class VenturiConfig:
     area_inlet: float = field(init=False)
     area_throat: float = field(init=False)
     is_gas: bool = field(init=False)
+    temp_C: float = field(init=False)
     nu: float = field(init=False)
     v_throat: float = field(init=False)
     Q: float = field(init=False)
@@ -119,6 +123,7 @@ class VenturiConfig:
             if self.rho is None or self.mu is None:
                 raise ValueError("fluid 'custom' needs both rho and mu.")
             self.is_gas = False
+            self.temp_C = 20.0
             if self.p_vap is None:
                 self.p_vap = 0.0
             return
@@ -127,8 +132,12 @@ class VenturiConfig:
                              f"Known: {', '.join(FLUIDS)} or 'custom'.")
         f = FLUIDS[self.fluid]
         self.is_gas = f.is_gas
+        self.temp_C = f.temp_C
         if self.rho is None:
-            self.rho = f.rho
+            # Gases: density at the inlet pressure, not at the 1 atm of the
+            # table (ideal gas, same temperature). The solver keeps it
+            # constant along the tube; see the Mach warning below.
+            self.rho = f.density_at(self.p_inlet)
         if self.mu is None:
             self.mu = f.mu
         if self.p_vap is None:
@@ -173,7 +182,11 @@ class VenturiConfig:
 
         q_th = 0.5 * self.rho * self.v_throat ** 2
         self.cavitation_number = (self.p_throat_ideal - self.p_vap) / q_th
-        self.mach_throat = self.v_throat / SPEED_OF_SOUND_GAS if self.is_gas else 0.0
+        if self.is_gas:
+            a = math.sqrt(GAMMA_AIR * R_AIR * (self.temp_C + 273.15))
+            self.mach_throat = self.v_throat / a
+        else:
+            self.mach_throat = 0.0
 
     # ------------------------------------------------------------------------
     def summary(self) -> str:

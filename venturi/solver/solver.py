@@ -225,10 +225,10 @@ def solve_fv(mesh: FVMesh, config, verbose: bool = True,
             nu_t = (1.0 - turb_relax) * nu_t + turb_relax * nu_t_new
         np.add(nu_t, nu_lam, out=nu_eff)
 
-        explicit_rhs(uz, ur, F_ax, F_rad, nu_eff, nu_lam,
+        explicit_rhs(uz, ur, F_ax, F_rad, nu_eff,
                       c_ax_diff, c_rad, c_in, mesh.vol, uz_in, az_e, ar_e)
 
-        dt = timestep(F_ax, F_rad, nu_eff, nu_lam, c_ax_diff, c_in,
+        dt = timestep(F_ax, F_rad, nu_eff, c_ax_diff, c_in,
                        mesh.vol, cfl)
 
         if radial_implicit:
@@ -240,7 +240,7 @@ def solve_fv(mesh: FVMesh, config, verbose: bool = True,
             implicit_radial(uz, ur, az_tot, ar_tot, nu_eff, nu_lam, c_rad,
                              cw1, cw2, mesh.vol, mesh.r_c, dt, az, ar)
         else:
-            dt = min(dt, timestep_radial(nu_eff, nu_lam, c_rad, cw1, mesh.vol))
+            dt = min(dt, timestep_radial(nu_eff, nu_lam, c_rad, cw1, mesh.vol, mesh.r_c))
             radial_explicit(uz, ur, az_e, ar_e, nu_eff, nu_lam, c_rad,
                              cw1, cw2, mesh.vol, mesh.r_c, az, ar)
 

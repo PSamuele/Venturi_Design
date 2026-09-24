@@ -29,6 +29,7 @@ Index conventions
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 import numpy as np
 
@@ -116,25 +117,9 @@ def _radial_face_distribution(Nr: int, gamma: float) -> np.ndarray:
     return eta_f
 
 
-def _axial_face_distribution(L: float, Nz: int, z_a: float, z_b: float,
-                             refine: float) -> np.ndarray:
-    """Axial face positions, denser between z_a and z_b.
-
-    The wanted cell density (cells per metre) is
-
-        w(z) = 1 + (refine - 1) * g(z)
-
-    where g is a smooth step: about 1 between z_a and z_b, about 0 far from
-    them, with tanh ramps of width delta = (z_b - z_a) / 2 on each side. The
-    faces are placed so that every cell holds the same amount of w:
-    W(z) = integral of w from 0 to z, and face k sits where
-    W(z) = k * W(L) / Nz. Cells inside the zone are therefore about `refine`
-    times shorter than those far away, and the size changes gradually (no
-    jump between neighbouring cells). refine <= 1 gives uniform faces.
-    """
-    if refine <= 1.0 or z_b <= z_a:
-        return np.linspace(0.0, L, Nz + 1)
-    delta = 0.5 * (z_b - z_a)
+def _axial_faces_for_ramp(L: float, Nz: int, z_a: float, z_b: float,
+                          refine: float, delta: float) -> np.ndarray:
+    """Axial faces for a given ramp width delta (see _axial_face_distribution)."""
     z = np.linspace(0.0, L, 20001)
     g = 0.5 * (np.tanh((z - z_a) / delta) - np.tanh((z - z_b) / delta))
     w = 1.0 + (refine - 1.0) * g
@@ -144,8 +129,54 @@ def _axial_face_distribution(L: float, Nz: int, z_a: float, z_b: float,
     return z_f
 
 
+def throat_ramp_width(L: float, Nz: int, z_a: float, z_b: float,
+                      refine: float, max_ratio: float = 1.2) -> float:
+    """Ramp width, in units of the zone length (z_b - z_a), that keeps
+    neighbouring cells within max_ratio of each other on a grid of Nz cells.
+
+    Starts at 0.5 and widens by x1.25 until the condition holds. Coarser
+    grids need wider ramps.
+    """
+    ratio = 0.5
+    for _ in range(40):
+        z_f = _axial_faces_for_ramp(L, Nz, z_a, z_b, refine, ratio * (z_b - z_a))
+        dz = np.diff(z_f)
+        if np.max(np.maximum(dz[1:] / dz[:-1], dz[:-1] / dz[1:])) <= max_ratio:
+            break
+        ratio *= 1.25
+    return ratio
+
+
+def _axial_face_distribution(L: float, Nz: int, z_a: float, z_b: float,
+                             refine: float, ramp: Optional[float] = None) -> np.ndarray:
+    """Axial face positions, denser between z_a and z_b.
+
+    The wanted cell density (cells per metre) is
+
+        w(z) = 1 + (refine - 1) * g(z)
+
+    where g is a smooth step: about 1 between z_a and z_b, about 0 far from
+    them, with tanh ramps of width delta = ramp * (z_b - z_a) on each side.
+    The faces are placed so that every cell holds the same amount of w:
+    W(z) = integral of w from 0 to z, and face k sits where
+    W(z) = k * W(L) / Nz. Cells inside the zone are therefore about
+    `refine` times shorter than those far away.
+
+    ramp = None picks the narrowest ramp that keeps neighbouring cells
+    within 20 % of each other (throat_ramp_width). Passing a fixed ramp
+    keeps the SHAPE of the spacing the same on every grid, which a grid
+    refinement study needs. refine <= 1 gives uniform faces.
+    """
+    if refine <= 1.0 or z_b <= z_a:
+        return np.linspace(0.0, L, Nz + 1)
+    if ramp is None:
+        ramp = throat_ramp_width(L, Nz, z_a, z_b, refine)
+    return _axial_faces_for_ramp(L, Nz, z_a, z_b, refine, ramp * (z_b - z_a))
+
+
 def build_fvmesh(geom, Nz: int, Nr: int, wall_clustering: float = 2.0,
-                 throat_refine: float = 1.0, centroid: str = "midpoint") -> FVMesh:
+                 throat_refine: float = 1.0, throat_ramp: Optional[float] = None,
+                 centroid: str = "midpoint") -> FVMesh:
     """Build the finite-volume grid from the wall geometry.
 
     Args:
@@ -156,6 +187,9 @@ def build_fvmesh(geom, Nz: int, Nr: int, wall_clustering: float = 2.0,
         throat_refine: how many times shorter the cells are in the throat
             than far from it (1 = uniform axial spacing). The throat is the
             straight piece between geom.z_stations[2] and [3].
+        throat_ramp: width of the cell-size ramps, in throat lengths. None
+            chooses it from Nz (see throat_ramp_width); a fixed value keeps
+            the spacing shape identical across grids.
         centroid: "midpoint" (default) or "volume". With a uniform radial
             distribution, "midpoint" places every face exactly halfway
             between the two neighbouring cell centres, which is the condition
@@ -169,7 +203,8 @@ def build_fvmesh(geom, Nz: int, Nr: int, wall_clustering: float = 2.0,
     # --- axial grid: faces denser in the throat, centres at mid-cell --------
     zs = getattr(geom, "z_stations", None)
     if zs is not None and throat_refine > 1.0:
-        z_f = _axial_face_distribution(L, Nz, float(zs[2]), float(zs[3]), throat_refine)
+        z_f = _axial_face_distribution(L, Nz, float(zs[2]), float(zs[3]),
+                                       throat_refine, throat_ramp)
     else:
         z_f = np.linspace(0.0, L, Nz + 1)
     z_c = 0.5 * (z_f[:-1] + z_f[1:])

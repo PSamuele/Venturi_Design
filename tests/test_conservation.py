@@ -115,9 +115,9 @@ def test_refined_grid_is_denser_in_throat_and_smooth(refined):
     assert m.z_f[0] == 0.0 and m.z_f[-1] == geom.L_total
     zs = geom.z_stations
     in_throat = (m.z_c > zs[2]) & (m.z_c < zs[3])
-    assert dz[in_throat].max() < dz.max() / 2.0
-    # neighbouring cells never differ by more than 30 % (at Nz = 60; less on finer grids)
-    assert np.max(np.maximum(dz[1:] / dz[:-1], dz[:-1] / dz[1:])) < 1.30
+    assert dz[in_throat].mean() < dz.max() / 2.0
+    # neighbouring cells never differ by more than 20 % (the ramps widen until they do not)
+    assert np.max(np.maximum(dz[1:] / dz[:-1], dz[:-1] / dz[1:])) <= 1.2 + 1e-12
 
 
 def test_refined_grid_keeps_conservation(refined):
@@ -132,3 +132,21 @@ def test_refined_grid_keeps_conservation(refined):
     before = np.abs(divergence(F_ax, F_rad, m)).max()
     F_ax_c, F_rad_c, _ = Projector(m).project(F_ax, F_rad)
     assert np.abs(divergence(F_ax_c, F_rad_c, m)).max() / before < 1e-10
+
+
+def test_weighted_projection_is_exact_and_symmetric(mesh):
+    """With a time step per face the projection must stay exact."""
+    rng = np.random.default_rng(4)
+    P = Projector(mesh)
+    P.set_weights(rng.uniform(0.1, 10.0, size=(mesh.Nz + 1, mesh.Nr)),
+                  rng.uniform(0.1, 10.0, size=(mesh.Nz, mesh.Nr + 1)))
+    assert abs(P.L - P.L.T).max() < 1e-9 * abs(P.L).max()
+    F_ax = rng.normal(size=(mesh.Nz + 1, mesh.Nr)) * mesh.A_ax
+    F_rad = np.zeros((mesh.Nz, mesh.Nr + 1))
+    F_rad[:, 1:mesh.Nr] = rng.normal(size=(mesh.Nz, mesh.Nr - 1)) * mesh.A_rad[:, 1:mesh.Nr]
+    F_in = F_ax[0].copy()
+    before = np.abs(divergence(F_ax, F_rad, mesh)).max()
+    F_ax_c, F_rad_c, _ = P.project(F_ax, F_rad)
+    assert np.abs(divergence(F_ax_c, F_rad_c, mesh)).max() / before < 1e-10
+    assert np.array_equal(F_ax_c[0], F_in)
+    assert np.all(F_rad_c[:, 0] == 0.0) and np.all(F_rad_c[:, mesh.Nr] == 0.0)

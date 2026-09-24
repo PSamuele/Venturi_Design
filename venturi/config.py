@@ -23,9 +23,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from .fluids import FLUIDS
+
+THROAT_REFINE_MAX = 6.0   # upper limit of the automatic throat refinement
 
 # Air as an ideal gas, used only for the Mach number warning.
 # Speed of sound a = sqrt(GAMMA * R * T), T in kelvin.
@@ -65,9 +67,10 @@ class VenturiConfig:
     Nz: int = 90                     # cells along the axis
     Nr: int = 36                     # cells along the radius
     wall_clustering: float = 2.7     # 0 = uniform, larger = thinner wall cells
-    throat_refine: float = 4.0       # throat cells this many times shorter than the rest
+    throat_refine: Union[float, str] = "auto"   # "auto" = 1/beta^2 (capped), or a number >= 1
     turbulence_model: str = "baldwin_lomax"
     cfl: float = 0.6
+    time_step: str = "local"         # "local": each cell its own step; "global": one step for all
     max_iter: int = 400000
     tol: float = 1e-3                # steady-state residual target
     output_dir: str = "results"
@@ -81,6 +84,7 @@ class VenturiConfig:
     area_inlet: float = field(init=False)
     area_throat: float = field(init=False)
     is_gas: bool = field(init=False)
+    throat_refine_capped: bool = field(init=False)
     temp_C: float = field(init=False)
     nu: float = field(init=False)
     v_throat: float = field(init=False)
@@ -116,10 +120,39 @@ class VenturiConfig:
                 f"up in the throat, so its pressure drops.")
         if not 0.0 < self.cd_design <= 1.0:
             raise ValueError(f"cd_design must be in (0, 1], got {self.cd_design}.")
-        if self.throat_refine < 1.0:
-            raise ValueError(f"throat_refine must be >= 1, got {self.throat_refine}.")
+        if self.time_step not in ("local", "global"):
+            raise ValueError(f"time_step must be 'local' or 'global', got '{self.time_step}'.")
+        self._set_throat_refine()
         if self.Nz < 2 or self.Nr < 3:
             raise ValueError(f"The grid needs Nz >= 2 and Nr >= 3 (got {self.Nz} x {self.Nr}).")
+
+    def _set_throat_refine(self) -> None:
+        """Resolve throat_refine = "auto" and check a given value.
+
+        Rule: the flow should take the same time to cross one cell in the
+        throat as in the pipe, dz_throat / v_throat = dz_pipe / v_inlet.
+        Then, for a given time step, the convective CFL number is the same
+        in both places, and the throat never forces a smaller step just
+        because its cells are shorter. Since v_throat / v_inlet = 1 / beta^2:
+
+            throat_refine = 1 / beta^2      (4 for beta = 0.5)
+
+        It is capped at THROAT_REFINE_MAX: with Nz fixed, more throat cells
+        mean longer cells elsewhere and a sharper change of cell length.
+        """
+        self.throat_refine_capped = False
+        if isinstance(self.throat_refine, str):
+            if self.throat_refine.strip().lower() != "auto":
+                raise ValueError(f"throat_refine must be 'auto' or a number, got "
+                                 f"'{self.throat_refine}'.")
+            value = 1.0 / self.beta ** 2
+            if value > THROAT_REFINE_MAX:
+                value = THROAT_REFINE_MAX
+                self.throat_refine_capped = True
+            self.throat_refine = value
+        self.throat_refine = float(self.throat_refine)
+        if self.throat_refine < 1.0:
+            raise ValueError(f"throat_refine must be >= 1, got {self.throat_refine}.")
 
     def _set_fluid(self) -> None:
         if self.fluid == "custom":
@@ -226,6 +259,7 @@ class VenturiConfig:
             f"wall clustering {self.wall_clustering:.2f}, "
             f"throat refinement {self.throat_refine:.1f}",
             f"  turbulence model  {self.turbulence_model}",
+            f"  time step         {self.time_step}, CFL {self.cfl}",
             "=" * 66,
         ]
         return "\n".join(lines)
@@ -248,6 +282,10 @@ class VenturiConfig:
                      f"density changes by about "
                      f"{100*self.dp_ideal/self.p_inlet:.1f} % between inlet and throat, "
                      f"but this solver assumes constant density.")
+        if self.throat_refine_capped:
+            w.append(f"Automatic throat refinement 1/beta^2 = {1/self.beta**2:.1f} "
+                     f"capped at {THROAT_REFINE_MAX:.0f}: the throat cells are longer "
+                     f"than the rule asks. To go higher, set --throat-refine yourself and raise --Nz.")
         if self.Nz < 20:
             w.append(f"Nz = {self.Nz} < 20: the axial gradients are poorly resolved.")
         if self.Nr < 10:

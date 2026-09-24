@@ -16,12 +16,27 @@ Time marching (pseudo-transient towards steady state):
     1. reconstruct cell velocities from the fluxes
     2. eddy viscosity (algebraic model)
     3. cell accelerations: -convection + diffusion + axisymmetric source
-    4. predicted fluxes  F* = F + dt * (acceleration projected onto the face)
-    5. divergence-free projection -> F and potential phi
-    6. physical pressure p = rho * phi / dt
+    4. predicted fluxes  F* = F + dt_f * (acceleration projected onto the face)
+    5. divergence-free projection -> corrected F and the pressure
 
 Step 5 is exact to machine precision (see projection.py), so mass is
 conserved at every single iteration, not merely at convergence.
+
+Local time step
+---------------
+Only the steady state matters, so each cell may advance with its own
+largest stable step instead of the smallest one of the whole grid. Face f
+uses dt_f = the smaller step of its two cells, both in the predictor and in
+the pressure correction:
+
+    F* = F + dt_f * A_f * a_f
+    F  = F* - c_f * (dt_f / rho) * (p_P - p_N)
+
+The pressure matrix is assembled from the same weighted coefficients
+c_f * dt_f / rho, so the projection stays exact. At steady state F no
+longer changes, so on every face dt_f * (a_f - pressure gradient / rho) = 0:
+dt_f cancels and the solution is the same as with a global step. A test
+checks this (same answer at CFL 0.6 and 0.15, and in both modes).
 
 Convection
 ----------
@@ -55,8 +70,10 @@ from ..fvmesh import FVMesh, divergence
 from ..projection import Projector
 from ..turbulence import compute_nu_t, wall_y_plus
 from .kernels import (reconstruct, explicit_rhs, radial_explicit,
-                      implicit_radial, timestep, timestep_radial,
-                      predict_fluxes, max_change)
+                      cell_timesteps, face_timesteps, predict_fluxes,
+                      max_change, max_rate, any_above)
+
+DT_MARGIN = 0.8   # local step = 80 % of the cell's stability limit when frozen
 
 
 @dataclass
@@ -116,21 +133,25 @@ def inlet_profile(mesh: FVMesh, Re_D: float, Q_target: float) -> np.ndarray:
 # ---------------------------------------------------------------------------
 def solve_fv(mesh: FVMesh, config, verbose: bool = True,
              turb_every: int = 5, turb_relax: float = 0.3,
-             p_relax: float = 0.3,
-             radial_implicit: bool = False) -> FVResult:
+             dt_every: int = 500) -> FVResult:
     """Solve the steady field on the given domain.
 
     Args:
         mesh: finite-volume grid.
-        config: VenturiConfig (uses rho, nu, v_inlet, Re_D, max_iter,
-            tol, cfl, turbulence_model).
+        config: VenturiConfig (uses rho, nu, v_inlet, v_throat, R_inlet,
+            Re_D, max_iter, tol, cfl, turbulence_model, time_step).
         verbose: print progress.
         turb_every: how often (in iterations) to refresh nu_t.
         turb_relax: under-relaxation factor on nu_t (0 < x <= 1).
-        p_relax: under-relaxation on the pressure accumulation (0 < x <= 1).
-        radial_implicit: radial implicit accelerator. Roughly 7x fewer
-            iterations, but it makes the steady state depend on the time
-            step; off by default. See the README.
+        dt_every: with the local time step, how often (in iterations) the
+            time step of each cell is recomputed and the pressure matrix
+            refactored.
+
+    Time step (config.time_step):
+        "global": every cell uses the smallest stable step of the grid.
+        "local":  every cell uses its own largest stable step. The steady
+                  state is the same (see the module docstring), it is only
+                  reached in far fewer iterations.
     """
     t0 = time.time()
 
@@ -183,19 +204,17 @@ def solve_fv(mesh: FVMesh, config, verbose: bool = True,
     ar = np.zeros((Nz, Nr))
     az_e = np.zeros((Nz, Nr))
     ar_e = np.zeros((Nz, Nr))
-    az_tot = np.zeros((Nz, Nr))
-    ar_tot = np.zeros((Nz, Nr))
-    gz = np.zeros((Nz, Nr))      # accumulated pressure acceleration
-    gr = np.zeros((Nz, Nr))
-    dgz = np.zeros((Nz, Nr))
-    dgr = np.zeros((Nz, Nr))
-    p_acc = np.zeros((Nz, Nr))
     nu_t = np.zeros((Nz, Nr))
     reconstruct(F_ax, F_rad, mesh.A_ax, mesh.Cr_rad, mesh.Cz_rad, uz, ur)
 
     U_ref = float(config.v_throat)
     L_ref = float(mesh.z_f[-1] - mesh.z_f[0])
     res_scale = L_ref / (U_ref ** 2)
+
+    mode = str(getattr(config, "time_step", "local"))
+    if mode not in ("local", "global"):
+        raise ValueError(f"time_step must be 'local' or 'global', got '{mode}'.")
+    local = mode == "local"
 
     history: List[float] = []
     converged = False
@@ -204,14 +223,16 @@ def solve_fv(mesh: FVMesh, config, verbose: bool = True,
     dt = 0.0
     n = 0
 
-    # Work buffers, allocated once: the loop runs ~1e5 times, so any array
-    # created inside it costs more than the arithmetic done on it.
+    # Work buffers, allocated once: the loop runs many thousands of times,
+    # so any array created inside it costs more than the arithmetic done on it.
     uz_new = np.empty((Nz, Nr))
     ur_new = np.empty((Nz, Nr))
     nu_eff = np.empty((Nz, Nr))
-    if radial_implicit:
-        F_ax_star = np.empty_like(F_ax)
-        F_rad_star = np.empty_like(F_rad)
+    dt_cell = np.empty((Nz, Nr))      # step each cell actually uses
+    dt_limit = np.empty((Nz, Nr))     # stability limit of each cell, now
+    n_refactor = 0
+    dt_ax = np.empty((Nz + 1, Nr))
+    dt_rad = np.empty((Nz, Nr + 1))
 
     for n in range(1, int(config.max_iter) + 1):
         if (n - 1) % turb_every == 0:
@@ -226,62 +247,64 @@ def solve_fv(mesh: FVMesh, config, verbose: bool = True,
         np.add(nu_t, nu_lam, out=nu_eff)
 
         explicit_rhs(uz, ur, F_ax, F_rad, nu_eff,
-                      c_ax_diff, c_rad, c_in, mesh.vol, uz_in, az_e, ar_e)
+                     c_ax_diff, c_rad, c_in, mesh.vol, uz_in, az_e, ar_e)
 
-        dt = timestep(F_ax, F_rad, nu_eff, c_ax_diff, c_in,
-                       mesh.vol, cfl)
-
-        if radial_implicit:
-            # Incremental form: the already-known pressure acceleration goes
-            # into the predictor, before the implicit solve, so that pressure
-            # and every other term pass through the same operator.
-            np.add(az_e, gz, out=az_tot)
-            np.add(ar_e, gr, out=ar_tot)
-            implicit_radial(uz, ur, az_tot, ar_tot, nu_eff, nu_lam, c_rad,
-                             cw1, cw2, mesh.vol, mesh.r_c, dt, az, ar)
+        cell_timesteps(F_ax, F_rad, nu_eff, nu_lam, c_ax_diff, c_in, c_rad,
+                       cw1, mesh.vol, mesh.r_c, cfl, local, dt_limit)
+        if local:
+            # The steps are frozen between refreshes, because every change
+            # means refactoring the pressure matrix. They are refreshed when
+            # some cell's frozen step has become larger than its current
+            # stability limit (the eddy viscosity can grow quickly early on),
+            # and every dt_every iterations so that they can also grow. A 20 %
+            # margin keeps the flow from triggering a refresh at every step.
+            if n == 1 or (n - 1) % dt_every == 0 or any_above(dt_cell, dt_limit):
+                np.multiply(dt_limit, DT_MARGIN, out=dt_cell)
+                # Each face advances with the smaller step of its two cells;
+                # the pressure matrix is weighted the same way.
+                face_timesteps(dt_cell, dt_ax, dt_rad)
+                proj.set_weights(dt_ax / rho, dt_rad / rho)
+                n_refactor += 1
         else:
-            dt = min(dt, timestep_radial(nu_eff, nu_lam, c_rad, cw1, mesh.vol, mesh.r_c))
-            radial_explicit(uz, ur, az_e, ar_e, nu_eff, nu_lam, c_rad,
-                             cw1, cw2, mesh.vol, mesh.r_c, az, ar)
+            dt = float(dt_limit.min())
+            dt_cell.fill(dt)
+            dt_ax.fill(dt)
+            dt_rad.fill(dt)
+
+        radial_explicit(uz, ur, az_e, ar_e, nu_eff, nu_lam, c_rad,
+                        cw1, cw2, mesh.vol, mesh.r_c, az, ar)
 
         predict_fluxes(F_ax, F_rad, az, ar, mesh.A_ax,
-                        mesh.Cr_rad, mesh.Cz_rad, dt)
-        if radial_implicit:
-            F_ax_star[...] = F_ax
-            F_rad_star[...] = F_rad
+                       mesh.Cr_rad, mesh.Cz_rad, dt_ax, dt_rad)
 
+        # Global step: the returned potential is phi = p * dt / rho.
+        # Local step: the faces are weighted by dt_f / rho, so it is p itself.
         phi = proj.project_inplace(F_ax, F_rad)
-
-        if radial_implicit:
-            # The flux correction is the effect of the pressure correction:
-            # reconstructed at cell centres and divided by dt, it is the
-            # increment of the accumulated pressure acceleration. The flux
-            # correction itself is applied IN FULL (otherwise the field would
-            # stop being divergence-free); only a fraction feeds the stored
-            # acceleration, because the predictor-projection feedback
-            # otherwise has gain above one.
-            reconstruct(F_ax - F_ax_star, F_rad - F_rad_star, mesh.A_ax,
-                         mesh.Cr_rad, mesh.Cz_rad, dgz, dgr)
-            gz += p_relax * dgz / dt
-            gr += p_relax * dgr / dt
-            p_acc += p_relax * (rho / dt) * phi
-        # Explicit path: the projection supplies the entire pressure gradient
-        # at every step, so p = rho*phi/dt with no accumulation. It is only
-        # needed at the end, so it is computed after the loop.
 
         reconstruct(F_ax, F_rad, mesh.A_ax, mesh.Cr_rad, mesh.Cz_rad, uz_new, ur_new)
 
-        # Dimensionless steady residual: |du/dt| * L / U^2.
-        # Dividing by dt is essential: without it the residual falls simply
-        # by shrinking the time step, with the solution no closer to steady.
-        residual = max_change(uz_new, uz, ur_new, ur) / dt * res_scale
+        # Dimensionless steady residual: |du/dt| * L / U^2, with the time
+        # step of each cell. Dividing by dt is essential: without it the
+        # residual falls simply by shrinking the time step, with the solution
+        # no closer to steady.
+        if local:
+            residual = max_rate(uz_new, uz, ur_new, ur, dt_cell) * res_scale
+        else:
+            residual = max_change(uz_new, uz, ur_new, ur) / dt * res_scale
         uz, uz_new = uz_new, uz
         ur, ur_new = ur_new, ur
         history.append(residual)
 
+        if not math.isfinite(residual):
+            if verbose:
+                print(f"  diverged at iteration {n} (residual is not a number); "
+                      f"try a lower --cfl")
+            break
+
         if verbose and (n == 1 or n % 5000 == 0):
-            print(f"  iter {n:7d} | residual {residual:.3e} | dt {dt:.3e} s "
-                  f"| max nu_t/nu {float((nu_t / nu_lam).max()):.1f}")
+            print(f"  iter {n:7d} | residual {residual:.3e} | dt {dt_cell.min():.2e}"
+                  f"..{dt_cell.max():.2e} s | max nu_t/nu {float((nu_t / nu_lam).max()):.1f}"
+                  + (f" | matrix refactored {n_refactor}x" if local else ""))
 
         if residual < float(config.tol) and n > 20:
             converged = True
@@ -292,8 +315,8 @@ def solve_fv(mesh: FVMesh, config, verbose: bool = True,
     # --- pressure -----------------------------------------------------------
     # Zero on the outlet face by construction. The field is then shifted so
     # that the mean inlet pressure matches the value imposed by the user.
-    if radial_implicit:
-        p = p_acc
+    if local:
+        p = phi.copy()
     else:
         p = (rho / dt) * phi if dt > 0.0 else np.zeros((Nz, Nr))
     p_in_mean = float(np.sum(p[0, :] * mesh.A_ax[0, :]) / mesh.A_ax[0, :].sum())

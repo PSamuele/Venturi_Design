@@ -95,15 +95,35 @@ def compute_face_coefficients(mesh: FVMesh) -> FaceCoefficients:
 class Projector:
     """Divergence-free projector with a reusable LU factorisation.
 
-    The operator does NOT depend on the time step: it solves for a potential
-    phi, and the physical pressure follows as p' = rho/dt * phi. The LU
-    factorisation is therefore computed once and reused for every iteration.
+    With one time step for all cells the operator does not depend on it: it
+    solves for a potential phi, the pressure is p = rho/dt * phi, and the LU
+    factorisation is computed once. With a time step per cell the faces are
+    weighted by dt_f/rho (set_weights), the potential IS the pressure, and
+    the factorisation is redone whenever the time steps are refreshed.
     """
 
     def __init__(self, mesh: FVMesh):
         self.mesh = mesh
         self.coef = compute_face_coefficients(mesh)
-        self.L = self._assemble()
+        n = mesh.Nz * mesh.Nr
+        self._rhs = np.empty(n)
+        self._work = np.empty(n)
+        self._factorise(self.coef.c_ax, self.coef.c_rad)
+
+    def set_weights(self, w_ax: np.ndarray, w_rad: np.ndarray) -> None:
+        """Weight every face coefficient: c_f -> c_f * w_f, then refactor.
+
+        Used with a local time step, where w_f = dt_f / rho. The correction
+        applied to the fluxes and the matrix are both built from the same
+        weighted coefficients, so the projection stays exact, and the
+        potential it returns is the pressure itself.
+        """
+        self._factorise(self.coef.c_ax * w_ax, self.coef.c_rad * w_rad)
+
+    def _factorise(self, c_ax: np.ndarray, c_rad: np.ndarray) -> None:
+        self.c_ax_used = np.ascontiguousarray(c_ax)
+        self.c_rad_used = np.ascontiguousarray(c_rad)
+        self.L = self._assemble(self.c_ax_used, self.c_rad_used)
         # The matrix is symmetric, so a symmetric fill-reducing ordering
         # (minimum degree on A^T + A) gives about 40 % fewer non-zeros in the
         # factors than the default COLAMD, and a correspondingly faster solve.
@@ -112,15 +132,11 @@ class Projector:
         # factors rather than by lu.solve(): same arithmetic, less overhead
         # per call (measured about 1.3-1.7x faster on this problem size).
         self._factors = _unpack_lu(self.lu)
-        n = mesh.Nz * mesh.Nr
-        self._rhs = np.empty(n)
-        self._work = np.empty(n)
 
     # -- assembly ------------------------------------------------------------
-    def _assemble(self) -> sp.csr_matrix:
+    def _assemble(self, c_ax: np.ndarray, c_rad: np.ndarray) -> sp.csr_matrix:
         mesh = self.mesh
         Nz, Nr = mesh.Nz, mesh.Nr
-        c_ax, c_rad = self.coef.c_ax, self.coef.c_rad
 
         def idx(i, j):
             return i * Nr + j
@@ -184,7 +200,7 @@ class Projector:
         phi = np.empty(Nz * Nr)
         _lu_solve(self._rhs, *self._factors, self._work, phi)
         phi = phi.reshape(Nz, Nr)
-        _correct_fluxes(F_ax, F_rad, phi, self.coef.c_ax, self.coef.c_rad)
+        _correct_fluxes(F_ax, F_rad, phi, self.c_ax_used, self.c_rad_used)
         return phi
 
 

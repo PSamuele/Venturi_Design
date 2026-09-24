@@ -428,7 +428,19 @@ keeps it fixed, so treat the result as indicative.
 For a fluid that isn't in the list:
 `--fluid custom --rho 850 --mu 0.003 --p-vap 500`
 
-If you spot something wrong, tell me.
+## A note on AI
+
+I used AI (Claude) as a coding assistant for the code: the scheme design,
+the implementation, and the diagnostic runs that tracked down the bugs
+described above.
+
+Every number in this README was measured by running the code, and the tests
+reproduce them. What isn't shown is listed above instead of being left out.
+
+Judge it the way you'd judge any solver someone wrote themselves. The
+conservation properties are provable and measured, the Poiseuille check is
+against an exact solution, and the grid study says how far the Venturi C_d
+still is from grid independence. If you spot something wrong, tell me.
 
 ## Licence
 

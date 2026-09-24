@@ -65,7 +65,7 @@ python main.py --help                                 # show every option
 ```
 
 The second line runs the default case: water at 20 C, a 100 mm pipe, a
-50 mm throat, and a pressure drop of 6325 Pa. It takes about 40 seconds and
+50 mm throat, and a pressure drop of 6325 Pa. It takes about 10 seconds and
 writes its files to
 `results/water_20C_D100_beta0.50_Pin101325_Pth95000/`.
 
@@ -116,11 +116,12 @@ Units: lengths in metres, pressures in pascal (Pa), angles in degrees.
 | `--Nz N` | number of cells along the tube | 90 |
 | `--Nr N` | number of cells from the axis to the wall | 36 |
 | `--clustering VALUE` | how much thinner the cells get near the wall (0 = all the same) | 2.7 |
-| `--throat-refine VALUE` | how many times shorter the cells are in the throat than far from it (1 = all the same length) | 4 |
+| `--throat-refine VALUE` | how many times shorter the cells are in the throat than far from it: `auto` = 1/beta^2 (at most 6), or a number (1 = all the same length) | `auto` |
 | `--turbulence MODEL` | `laminar`, `mixing_length` or `baldwin_lomax` | `baldwin_lomax` |
 | `--max-iter N` | give up after this many steps | 400000 |
 | `--tol VALUE` | the solution counts as settled when the residual is below this | 1e-3 |
 | `--cfl VALUE` | safety factor for the time step, between 0 and 1. Lower is slower but safer | 0.6 |
+| `--time-step MODE` | `local`: each cell moves with its own largest safe step. `global`: all cells use the smallest one. Same result, `local` is usually much faster (section 11) | `local` |
 
 **Checks and output**
 
@@ -174,23 +175,35 @@ rounded with circular arcs that meet the straight pieces smoothly.
 **[3/6] Grid.** The inside of the tube is cut into ring-shaped cells, Nz
 along the axis and Nr from the axis to the wall. The cells get thinner near
 the wall, because that is where the speed changes fastest. They are also
-shorter in the throat (4 times by default), because the pressure changes
-quickly there: it dips just after the throat entrance, where the flow turns
-round the corner, and the throat pressure tap sits right after that dip.
-The cell length changes gradually, by at most about 20 % from one cell to
-the next.
+shorter in the throat, because the pressure changes quickly there: it dips
+just after the throat entrance, where the flow turns round the corner, and
+the throat pressure tap sits right after that dip.
+
+How much shorter (`--throat-refine auto`): the fluid should take the same
+time to cross one cell in the throat as in the pipe. The throat is
+1/beta^2 times faster, so its cells are made 1/beta^2 times shorter (4 for
+beta = 0.5). This keeps the CFL number (section 8) the same in both places,
+so the throat does not force a smaller time step than the pipe. The factor
+is capped at 6, because with a fixed Nz more throat cells mean longer cells
+everywhere else; the program warns when the cap is used. The cell length
+changes gradually, by at most 20 % from one cell to the next.
 
 **[4/6] Flow solution.** The program solves the flow equations of a
 liquid, or of a slow gas, in the tube (see *Navier-Stokes* in
 [section 9](#9-words-used-in-this-readme)). It starts from a rough guess
-and takes small time steps until nothing changes any more. A line is
+and takes time steps until nothing changes any more. Only the final,
+settled flow matters, so each cell may take its own largest safe step
+(`--time-step local`, see *local time step* in section 9). A line is
 printed every 5000 steps:
 
-    iter  5000 | residual 6.7e-01 | dt 8.3e-05 s | max nu_t/nu 532.0
+    iter  5000 | residual 5.5e-02 | dt 6.68e-05..3.77e-03 s | max nu_t/nu 594.7 | matrix refactored 298x
 
 - `residual` measures how much the flow still changes. The run stops when
   it drops below `--tol`.
-- `dt` is the time step.
+- `dt` is the smallest and the largest time step among the cells (one
+  number only with `--time-step global`).
+- `matrix refactored` counts how often the pressure equations were
+  rebuilt, which happens whenever the time steps are updated.
 - `max nu_t/nu` is how many times stronger turbulent mixing is than plain
   viscosity, at its peak.
 
@@ -231,7 +244,7 @@ Every check prints `PASS` or `FAIL`, its value and its target.
 |---|---|---|---|
 | Inlet/outlet mass balance | the flow rate going out equals the flow rate coming in | mismatch < 0.1 % | a bug; please report it |
 | Leftover divergence | no cell creates or loses fluid | < 1e-9 of the flow through the cell | a bug; please report it |
-| Steady state reached | the flow stopped changing before `--max-iter` | residual < `--tol` | raise `--max-iter`, or read [section 11](#11-speed) |
+| Steady state reached | the flow stopped changing before `--max-iter` | residual < `--tol` | raise `--max-iter`, or try `--time-step global` (see [section 14](#14-questions-and-problems)) |
 | First cell y+ | the cells touching the wall are thin enough for the turbulence model | y+ < 5 | raise `--clustering` or `--Nr` |
 | No cavitation | the lowest pressure anywhere stays above the vapour pressure, so the liquid does not boil | p_min > p_vap | raise `--p-throat`, or use a larger `beta` |
 | C_d vs reference | only with `--cd-ref` | within `--cd-tol` % | see below |
@@ -306,6 +319,10 @@ Below the checks you get these numbers:
   from full speed down to zero. Most of the friction happens there.
 - **Wall clustering**: making the cells thinner near the wall so the
   boundary layer is described well.
+- **Local time step**: each cell moves forward in time with the largest
+  step that is safe for that cell, instead of all cells using the smallest
+  one. The in-between states are then not a real time history, but the
+  final settled flow is the same, and it is reached much sooner.
 - **Steady state**: the flow no longer changes with time. The program
   steps forward in time only to reach it.
 - **Cavitation**: when the pressure of a liquid drops below its vapour
@@ -324,16 +341,29 @@ Below the checks you get these numbers:
 | pressure gradient in a straight pipe vs the exact laminar result (Hagen-Poiseuille), 80 x 40 cells | 0.031 % error |
 | how that error shrinks with the grid (20x10, 40x20, 80x40) | order 2.0: half the cell size, one quarter of the error |
 | solution independent of the time step (CFL 0.6 vs 0.15) | same to 1e-6 |
+| local and global time step give the same solution | same to 1e-6 |
 
 The straight-pipe test is the strongest one. There the exact answer is
 known, and the test involves the viscous terms, the wall treatment and the
 round geometry all at once.
 
-**Default Venturi case (90 x 36, throat refinement 4):** C_d = 0.9749. The
-wall pressure drop is 6655 Pa, against 6325 Pa without friction.
+**Default Venturi case (90 x 36, throat refinement auto = 4):** C_d = 0.9751.
+The wall pressure drop is 6652 Pa, against 6325 Pa without friction.
 
-**How C_d depends on the throat cells** (default case, taps interpolated to
-their exact position):
+**Two grids:**
+
+| grid | C_d |
+|---|---|
+| 90 x 36 | 0.9751 |
+| 128 x 51 | 0.9773 |
+
+The finer grid gives a C_d 0.23 % higher. Two grids show the direction of
+the change but not where it stops, so the grid error of the default case is
+of the order of a few tenths of a percent.
+
+**How C_d depends on the throat cells** (default case, global time step,
+taps interpolated to their exact position; measured before the cell-size
+ramps were made adaptive, so the default grid differs slightly):
 
 | throat refinement | cells in the throat | C_d |
 |---|---|---|
@@ -355,10 +385,8 @@ takes about three times longer.
 
 **What has NOT been shown:**
 
-- **That the Venturi result is grid independent.** On the finer 128 x 51
-  grid the run does not settle within 400,000 steps (see
-  [section 11](#11-speed)), so there is no converged second grid to compare
-  with.
+- **That the Venturi result is grid independent.** Only two grids (see
+  above), and they differ by 0.23 %.
 - **That C_d is settled to better than about 0.1 %.** See the table above:
   the wall pressure right after the throat corner still wobbles a little
   from cell to cell. The pressure also differs between axis and wall in the
@@ -382,30 +410,41 @@ takes about three times longer.
 
 ## 11. Speed
 
-Measured on one CPU core of the machine used for development:
+Measured on one CPU core of the machine used for development (`--tol`
+1e-3). "Local" and "global" are the two `--time-step` modes:
 
-| grid | steps | time | settles? |
+| case | global: steps / time | local: steps / time | C_d global / local |
 |---|---|---|---|
-| 90 x 36 (default) | 108,411 | about 40 s | yes |
-| 128 x 51 | 400,000 (limit) | about 5 min | no, residual stalls near 2e-2 |
+| default, 90 x 36 | 116,891 / 44 s | 18,556 / 11 s | 0.97503 / 0.97510 |
+| 60 x 24 | 46,730 / 8 s | 13,721 / 3 s | 0.96997 / 0.97020 |
+| 128 x 51 | does not settle in 400,000 | 34,061 / 34 s | - / 0.97728 |
+| beta = 0.4 | 216,695 / 81 s | 19,386 / 10 s | 0.97146 / 0.97145 |
+| beta = 0.7 | 63,686 / 24 s | 33,011 / 14 s | 0.97909 / 0.97932 |
+| air, 1325 Pa drop | does not settle in 400,000 | 16,115 / 9 s | - / 0.97429 |
+| mixing length model | 125,136 / 45 s | 19,931 / 9 s | 0.97353 / 0.97351 |
+| 40 x 16 (too coarse, y+ = 8.7) | settles | does not settle | |
 
-The 128 x 51 case also stalls with the code as it was before this
-version (checked: same residual, 2.1e-2, after 400,000 steps). An earlier
-README said it settles in about 272,000 steps, but the code in the
-repository does not reproduce that.
+The two modes agree on C_d within 0.025 %.
 
-Why so many steps: the cells at the wall are very thin, and the eddy
-viscosity there reaches about 600 times the plain viscosity. Together these
-force a very small time step for the diffusion near the wall. That limit is
-tighter than the one set by the flow speed.
+**Why the global mode is slow.** The cells at the wall are very thin, and
+the eddy viscosity there reaches about 600 times the plain viscosity.
+Together they force a time step of about 7e-5 s there, while the cells in
+the middle of the pipe could take 3e-3 s, about 50 times more. With one
+step for all, every cell has to use the smallest one.
 
-There is a faster option in the code,
-`solve_fv(mesh, config, radial_implicit=True)`, which needs about 7 times
-fewer steps. It is off because with it the final answer depends on the time
-step, which is wrong. Do not use it for results you care about.
+**Why the local mode gives the same answer.** Each face moves with the
+smaller step of its two cells, and the pressure equations are weighted by
+the same steps. When the flow has settled, nothing changes any more, so the
+steps drop out of the equations. Tests check this on the straight pipe
+(same result at CFL 0.6 and 0.15, and in both modes).
 
-The real fix is a different time-marching method (SIMPLE-type, or a time
-step chosen cell by cell). That is future work.
+**When the local mode does not help.** In a straight pipe with equal cells
+all cells have nearly the same limit, so there is nothing to gain (the
+local mode even takes about 1.5 times more steps there, because it keeps a
+20 % safety margin). On very coarse grids (40 x 16 above) the local mode
+can keep hovering instead of settling: the Baldwin-Lomax model switches
+between neighbouring cells and the bigger steps keep that going. Use
+`--time-step global` there, or a finer grid.
 
 ## 12. Project layout
 
@@ -419,7 +458,7 @@ venturi/
   fvmesh.py                cells, face areas, volumes
   projection.py            pressure correction that keeps mass exact
   solver/
-    solver.py              the time-stepping loop
+    solver.py              the time-stepping loop (local or global step)
     kernels.py             the heavy loops, compiled with Numba
   turbulence.py            mixing length and Baldwin-Lomax models
   validation.py            checks, pressure taps, C_d
@@ -436,23 +475,24 @@ results/                   created by the runs, not stored in git
 ## 13. Tests
 
 ```bash
-pytest tests/          # 53 tests, about 10 seconds
+pytest tests/          # 62 tests, about 10 seconds
 ```
 
 | file | what it checks |
 |---|---|
-| `test_conservation.py` | cell volumes add up to the tube volume; no fake mass in uniform flow; the correction removes all imbalance and leaves the inlet and wall untouched; the pressure matrix is symmetric; the same on a grid with shorter throat cells, whose spacing changes smoothly |
-| `test_physics.py` | straight pipe against the exact laminar solution (pressure gradient and velocity profile); result independent of the time step; inlet profile shape and flow rate |
+| `test_conservation.py` | cell volumes add up to the tube volume; no fake mass in uniform flow; the correction removes all imbalance and leaves the inlet and wall untouched; the pressure matrix is symmetric; the same with a different time step on every face, and on a grid with shorter throat cells, whose spacing changes smoothly |
+| `test_physics.py` | straight pipe against the exact laminar solution (pressure gradient and velocity profile); result independent of the time step in both modes; local and global mode give the same result; inlet profile shape and flow rate |
 | `test_turbulence_models.py` | eddy viscosity never negative, larger than plain viscosity at high Re, zero for laminar; unknown model names are refused |
 | `test_geometry.py` | radius and slope are continuous where the rounded corners join; slope matches a numerical derivative |
-| `test_inputs.py` | wrong inputs are refused; sizing gives the requested pressure drop; gas density follows pressure; Mach and cavitation warnings; command-line options reach the program; the optimiser; taps read the wall at their exact position; the cavitation check |
+| `test_inputs.py` | wrong inputs are refused; sizing gives the requested pressure drop; gas density follows pressure; Mach and cavitation warnings; command-line options reach the program; automatic throat refinement = 1/beta^2 and its cap; the optimiser; taps read the wall at their exact position; the cavitation check |
 | `test_export.py` | every file carries the right value on the right point; missing libraries skip files cleanly |
 
 ## 14. Questions and problems
 
 **"Steady state reached" fails.** Raise `--max-iter`. If the residual
-stops going down, try a lower `--cfl` (for example 0.4). On fine grids see
-[section 11](#11-speed).
+stops going down and hovers, try `--time-step global` (slower, but it
+settles on coarse grids where the local mode may not), or a lower `--cfl`
+(for example 0.4). See [section 11](#11-speed).
 
 **"First cell y+" fails.** The wall cells are too thick for the
 turbulence model. Raise `--clustering` (for example 3.0) or `--Nr`.

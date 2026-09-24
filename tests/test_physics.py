@@ -4,7 +4,7 @@ import pytest
 from types import SimpleNamespace
 
 from venturi.fvmesh import build_fvmesh
-from venturi.fvsolver import solve_fv, inlet_profile
+from venturi.solver import solve_fv, inlet_profile
 
 R_PIPE, L_PIPE = 0.01, 0.5
 RHO, MU = 1000.0, 1.0e-3
@@ -27,7 +27,7 @@ class StraightPipe:
 def _pipe_config(**kw):
     base = dict(rho=RHO, nu=NU, v_inlet=V_MEAN, v_throat=V_MEAN, R_inlet=R_PIPE,
                 p_inlet=0.0, Re_D=RHO * V_MEAN * 2 * R_PIPE / MU,
-                max_iter=60000, tol_steady=1e-7, cfl_max=0.5,
+                max_iter=60000, tol=1e-7, cfl=0.5,
                 turbulence_model="laminar")
     base.update(kw)
     return SimpleNamespace(**base)
@@ -69,7 +69,7 @@ def test_steady_state_independent_of_timestep():
     pm = lambda r, i: float(np.sum(r.p[i] * mesh.A_ax[i]) / mesh.A_ax[i].sum())
     vals = []
     for cfl in (0.6, 0.15):
-        r = solve_fv(mesh, _pipe_config(cfl_max=cfl), verbose=False)
+        r = solve_fv(mesh, _pipe_config(cfl=cfl), verbose=False)
         vals.append((pm(r, 20) - pm(r, 37)) / (mesh.z_c[37] - mesh.z_c[20]))
     assert abs(vals[0] - vals[1]) / abs(vals[0]) < 1e-6
 

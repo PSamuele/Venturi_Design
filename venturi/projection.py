@@ -22,10 +22,18 @@ The face coefficient is
     c_f = A_f / (d_PN . n_f)
 
 with A_f the face area, n_f its unit normal and d_PN the vector joining the
-two centroids. Dividing by the PROJECTION of d_PN onto the normal (rather
-than by its length) is the "over-relaxed" non-orthogonality correction: on
-the Venturi's conical faces the centre-to-centre line and the normal make an
-angle of up to ~10 degrees, and ignoring it would bias the pressure gradient.
+two centroids. On the conical faces d_PN and n_f are not parallel (the angle
+reaches the half-angle of the cone, about 10 degrees here). Dividing by the
+projection d_PN . n_f is the orthogonal part of the "over-relaxed" split
+used for such grids. The second part of that split, an explicit correction
+built from the pressure gradient ALONG the face, is NOT included.
+
+Consequence: the divergence removed by the projection is still exact,
+because the matrix is literally D @ G whatever c_f is. What carries a small
+error is the pressure itself, where faces are skewed: an error that grows
+with the tangent of the skew angle and shrinks as the grid is refined.
+Adding the missing term would make the matrix non-symmetric and require an
+extra inner iteration.
 
 Boundary conditions for the correction potential phi
 ----------------------------------------------------

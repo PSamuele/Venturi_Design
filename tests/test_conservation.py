@@ -10,7 +10,7 @@ from venturi.projection import Projector
 
 @pytest.fixture(scope="module")
 def mesh():
-    cfg = VenturiConfig(D_inlet=0.1, beta=0.5, Nz=60, Nr=30)
+    cfg = VenturiConfig(D=0.1, beta=0.5, Nz=60, Nr=30)
     return build_fvmesh(create_venturi_geometry(cfg), 60, 30, 2.5)
 
 
@@ -25,14 +25,14 @@ def test_volume_matches_analytic_integral(mesh):
     the fluxes regardless of how accurate the volumes are.
     """
     from scipy.integrate import quad
-    geom = create_venturi_geometry(VenturiConfig(D_inlet=0.1, beta=0.5))
+    geom = create_venturi_geometry(VenturiConfig(D=0.1, beta=0.5))
     V, _ = quad(lambda z: np.pi * float(geom.radius(np.array([z]))[0]) ** 2,
                 0.0, geom.L_total, limit=400)
     assert abs(mesh.vol.sum() - V) / V < 1e-5
 
 
 def test_inlet_area_is_exact(mesh):
-    cfg = VenturiConfig(D_inlet=0.1, beta=0.5)
+    cfg = VenturiConfig(D=0.1, beta=0.5)
     assert mesh.A_ax[0].sum() == pytest.approx(np.pi * cfg.R_inlet ** 2, rel=1e-14)
 
 

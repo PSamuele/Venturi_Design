@@ -158,7 +158,7 @@ def build_fvmesh(geom, Nz: int, Nr: int, wall_clustering: float = 2.0,
     # --- cell volumes -------------------------------------------------------
     # V = integral over z of [ pi * (eta2^2 - eta1^2) * R(z)^2 ] dz.
     # The z integral uses 4-point Gauss-Legendre, exact for R(z)^2 up to
-    # degree 7, so the conical runs and the ISO blend arcs are captured with
+    # degree 7, so the cones and the rounded corner arcs are captured with
     # no appreciable quadrature error.
     zq = 0.5 * (z_f[:-1, None] + z_f[1:, None]) + 0.5 * dz[:, None] * _GL_X[None, :]
     wq = 0.5 * dz[:, None] * _GL_W[None, :]                      # (Nz, 4)

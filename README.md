@@ -65,7 +65,7 @@ python main.py --help                                 # show every option
 ```
 
 The second line runs the default case: water at 20 C, a 100 mm pipe, a
-50 mm throat, and a pressure drop of 6325 Pa. It takes about 45 seconds and
+50 mm throat, and a pressure drop of 6325 Pa. It takes about 40 seconds and
 writes its files to
 `results/water_20C_D100_beta0.50_Pin101325_Pth95000/`.
 
@@ -116,6 +116,7 @@ Units: lengths in metres, pressures in pascal (Pa), angles in degrees.
 | `--Nz N` | number of cells along the tube | 90 |
 | `--Nr N` | number of cells from the axis to the wall | 36 |
 | `--clustering VALUE` | how much thinner the cells get near the wall (0 = all the same) | 2.7 |
+| `--throat-refine VALUE` | how many times shorter the cells are in the throat than far from it (1 = all the same length) | 4 |
 | `--turbulence MODEL` | `laminar`, `mixing_length` or `baldwin_lomax` | `baldwin_lomax` |
 | `--max-iter N` | give up after this many steps | 400000 |
 | `--tol VALUE` | the solution counts as settled when the residual is below this | 1e-3 |
@@ -172,7 +173,12 @@ rounded with circular arcs that meet the straight pieces smoothly.
 
 **[3/6] Grid.** The inside of the tube is cut into ring-shaped cells, Nz
 along the axis and Nr from the axis to the wall. The cells get thinner near
-the wall, because that is where the speed changes fastest.
+the wall, because that is where the speed changes fastest. They are also
+shorter in the throat (4 times by default), because the pressure changes
+quickly there: it dips just after the throat entrance, where the flow turns
+round the corner, and the throat pressure tap sits right after that dip.
+The cell length changes gradually, by at most about 20 % from one cell to
+the next.
 
 **[4/6] Flow solution.** The program solves the flow equations of a
 liquid, or of a slow gas, in the tube (see *Navier-Stokes* in
@@ -236,7 +242,9 @@ Below the checks you get these numbers:
   [section 8](#8-symbols)). Usually a little below 1.
 - **dp between the wall taps**: the pressure drop used for C_d. It is read
   at the wall, 0.5 D before the narrowing cone and in the middle of the
-  throat, the same places a real tube has its small pressure holes.
+  throat, the same places a real tube has its small pressure holes. The
+  wall values of the two nearest cells are interpolated to those exact
+  positions.
 - **dp of section averages**: the same drop averaged over the whole cross
   section, only for comparison. It differs from the wall value where the
   flow is curved (see [section 10](#10-how-accurate-it-is-and-its-limits)).
@@ -321,8 +329,29 @@ The straight-pipe test is the strongest one. There the exact answer is
 known, and the test involves the viscous terms, the wall treatment and the
 round geometry all at once.
 
-**Default Venturi case (90 x 36):** C_d = 0.9774. The wall pressure drop is
-6621 Pa, against 6325 Pa without friction.
+**Default Venturi case (90 x 36, throat refinement 4):** C_d = 0.9749. The
+wall pressure drop is 6655 Pa, against 6325 Pa without friction.
+
+**How C_d depends on the throat cells** (default case, taps interpolated to
+their exact position):
+
+| throat refinement | cells in the throat | C_d |
+|---|---|---|
+| 1 (even spacing) | 4 | 0.9707 |
+| 2 | 7 | 0.9751 |
+| 3 | 9 | 0.9764 |
+| 4 (default) | 12 | 0.9751 |
+
+With even spacing, the pressure dip at the throat entrance falls inside a
+single cell, so the throat reading is off by about 0.4 %. From refinement 2
+upwards C_d stays within about +/- 0.07 %. The spread that remains comes
+from small ups and downs of the wall pressure (about +/- 40 Pa) just after
+the sharp corner at the throat entrance. The four rounded corners are
+genuinely small here: with radius 0.2 d and a 10.5 degree turn, the arc
+into the throat is only 1.8 mm long.
+
+Tightening `--tol` from 1e-3 to 1e-4 changes C_d by at most 0.035 % and
+takes about three times longer.
 
 **What has NOT been shown:**
 
@@ -330,11 +359,11 @@ round geometry all at once.
   grid the run does not settle within 400,000 steps (see
   [section 11](#11-speed)), so there is no converged second grid to compare
   with.
-- **That the throat is well resolved.** With the uniform axial spacing, the
-  throat (length d) holds only about 4.5 cells at the default Nz = 90. The
-  pressure is not uniform across the throat section there: up to 80 Pa
-  between axis and wall, about 1 % of dp. That is why the wall reading and
-  the section average differ (C_d 0.9774 against 0.9744).
+- **That C_d is settled to better than about 0.1 %.** See the table above:
+  the wall pressure right after the throat corner still wobbles a little
+  from cell to cell. The pressure also differs between axis and wall in the
+  throat (about 70 Pa, 1 % of dp), because the flow is still curving after
+  the corner. That is why the wall reading and the section average differ.
 
 **Simplifications in the model:**
 
@@ -357,7 +386,7 @@ Measured on one CPU core of the machine used for development:
 
 | grid | steps | time | settles? |
 |---|---|---|---|
-| 90 x 36 (default) | 110,376 | about 41 s | yes |
+| 90 x 36 (default) | 108,411 | about 40 s | yes |
 | 128 x 51 | 400,000 (limit) | about 5 min | no, residual stalls near 2e-2 |
 
 The 128 x 51 case also stalls with the code as it was before this
@@ -407,16 +436,16 @@ results/                   created by the runs, not stored in git
 ## 13. Tests
 
 ```bash
-pytest tests/          # 48 tests, about 10 seconds
+pytest tests/          # 53 tests, about 10 seconds
 ```
 
 | file | what it checks |
 |---|---|
-| `test_conservation.py` | cell volumes add up to the tube volume; no fake mass in uniform flow; the correction removes all imbalance and leaves the inlet and wall untouched; the pressure matrix is symmetric |
+| `test_conservation.py` | cell volumes add up to the tube volume; no fake mass in uniform flow; the correction removes all imbalance and leaves the inlet and wall untouched; the pressure matrix is symmetric; the same on a grid with shorter throat cells, whose spacing changes smoothly |
 | `test_physics.py` | straight pipe against the exact laminar solution (pressure gradient and velocity profile); result independent of the time step; inlet profile shape and flow rate |
 | `test_turbulence_models.py` | eddy viscosity never negative, larger than plain viscosity at high Re, zero for laminar; unknown model names are refused |
 | `test_geometry.py` | radius and slope are continuous where the rounded corners join; slope matches a numerical derivative |
-| `test_inputs.py` | wrong inputs are refused; sizing gives the requested pressure drop; gas density follows pressure; Mach and cavitation warnings; command-line options reach the program; the optimiser; taps read the wall; the cavitation check |
+| `test_inputs.py` | wrong inputs are refused; sizing gives the requested pressure drop; gas density follows pressure; Mach and cavitation warnings; command-line options reach the program; the optimiser; taps read the wall at their exact position; the cavitation check |
 | `test_export.py` | every file carries the right value on the right point; missing libraries skip files cleanly |
 
 ## 14. Questions and problems

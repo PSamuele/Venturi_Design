@@ -65,6 +65,7 @@ class VenturiConfig:
     Nz: int = 90                     # cells along the axis
     Nr: int = 36                     # cells along the radius
     wall_clustering: float = 2.7     # 0 = uniform, larger = thinner wall cells
+    throat_refine: float = 4.0       # throat cells this many times shorter than the rest
     turbulence_model: str = "baldwin_lomax"
     cfl: float = 0.6
     max_iter: int = 400000
@@ -115,6 +116,8 @@ class VenturiConfig:
                 f"up in the throat, so its pressure drops.")
         if not 0.0 < self.cd_design <= 1.0:
             raise ValueError(f"cd_design must be in (0, 1], got {self.cd_design}.")
+        if self.throat_refine < 1.0:
+            raise ValueError(f"throat_refine must be >= 1, got {self.throat_refine}.")
         if self.Nz < 2 or self.Nr < 3:
             raise ValueError(f"The grid needs Nz >= 2 and Nr >= 3 (got {self.Nz} x {self.Nr}).")
 
@@ -220,7 +223,8 @@ class VenturiConfig:
         lines += [
             "-" * 66,
             f"  grid              {self.Nz} x {self.Nr} = {self.Nz*self.Nr} cells, "
-            f"wall clustering {self.wall_clustering:.2f}",
+            f"wall clustering {self.wall_clustering:.2f}, "
+            f"throat refinement {self.throat_refine:.1f}",
             f"  turbulence model  {self.turbulence_model}",
             "=" * 66,
         ]

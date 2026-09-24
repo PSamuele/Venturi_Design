@@ -102,19 +102,21 @@ def _fake_result(cfg, mesh, p):
                            final_residual=0.0, converged=True, y_plus_max=1.0)
 
 
-def test_taps_read_the_wall_cell():
-    """dp must come from the wall cells, not from the section average."""
+def test_taps_read_the_wall_at_the_exact_position():
+    """dp must come from the wall cells, interpolated to the tap positions."""
     cfg = VenturiConfig(Nz=60, Nr=12)
     geom = create_venturi_geometry(cfg)
     mesh = build_fvmesh(geom, 60, 12, 2.0)
-    p = np.full((60, 12), 1.0e5)
     zs = geom.z_stations
-    i_th = int(np.argmin(np.abs(mesh.z_c - 0.5 * (zs[2] + zs[3]))))
-    p[i_th, :] = 1.0e5 - 7000.0      # the whole throat row is lower...
-    p[i_th, -1] = 1.0e5 - 6000.0     # ...but the wall reads 6000 Pa less
+    z_up, z_th = zs[1] - 0.5 * cfg.D, 0.5 * (zs[2] + zs[3])
+    # wall pressure falls linearly along z; the core is 1000 Pa lower still
+    p = np.empty((60, 12))
+    p[:, -1] = 1.0e5 - 20000.0 * mesh.z_c
+    p[:, :-1] = p[:, -1:] - 1000.0
     rep = validate(_fake_result(cfg, mesh, p), mesh, geom, cfg)
-    assert rep.dp_measured == pytest.approx(6000.0)
-    expected = cfg.Q / (cfg.area_throat * math.sqrt(2 * 6000.0 / (cfg.rho * (1 - cfg.beta**4))))
+    dp = 20000.0 * (z_th - z_up)
+    assert rep.dp_measured == pytest.approx(dp, rel=1e-12)
+    expected = cfg.Q / (cfg.area_throat * math.sqrt(2 * dp / (cfg.rho * (1 - cfg.beta**4))))
     assert rep.Cd == pytest.approx(expected, rel=1e-12)
 
 
@@ -137,3 +139,13 @@ def test_cd_reference_is_optional():
     assert not any(c.name.startswith("C_d") for c in validate(res, mesh, geom, cfg).checks)
     rep = validate(res, mesh, geom, cfg, cd_ref=0.98)
     assert any(c.name.startswith("C_d") for c in rep.checks)
+
+
+def test_throat_refine_below_1_is_rejected():
+    with pytest.raises(ValueError):
+        VenturiConfig(throat_refine=0.5)
+
+
+def test_throat_refine_option_reaches_the_config():
+    c = config_from_args(build_parser().parse_args(["--throat-refine", "2.5"]))
+    assert c.throat_refine == 2.5

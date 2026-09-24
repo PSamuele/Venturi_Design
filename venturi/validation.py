@@ -76,16 +76,17 @@ def section_mean(p: np.ndarray, mesh, i: int) -> float:
     return float(np.sum(p[i, :] * w) / np.sum(w))
 
 
-def tap_pressure(p: np.ndarray, mesh, i: int) -> float:
-    """Pressure a tap drilled in the wall at cell row i would read.
+def tap_pressure(p: np.ndarray, mesh, z: float) -> float:
+    """Pressure a tap drilled in the wall at axial position z would read.
 
     A real tap is a small hole in the wall, so it reads the pressure AT the
     wall. The pressure hardly changes across the thin wall cell (the flow
-    there is parallel to the wall), so the wall cell value is used. Where the
-    streamlines are curved the pressure differs between wall and axis, and
-    the section mean would not be what a tap measures.
+    there is parallel to the wall), so the wall-cell values are used,
+    interpolated linearly along z to the exact tap position. Taking the
+    nearest cell instead would move the tap by up to half a cell, and in the
+    throat the wall pressure changes quickly near the corners.
     """
-    return float(p[i, -1])
+    return float(np.interp(z, mesh.z_c, p[:, -1]))
 
 
 def validate(result, mesh, geom, config, cd_ref: Optional[float] = None,
@@ -105,11 +106,13 @@ def validate(result, mesh, geom, config, cd_ref: Optional[float] = None,
 
     # ------------------------------------------------------- pressure taps
     zs = geom.z_stations
-    i_up = int(np.argmin(np.abs(mesh.z_c - (zs[1] - 0.5 * D))))
-    i_th = int(np.argmin(np.abs(mesh.z_c - 0.5 * (zs[2] + zs[3]))))
-    p_up = tap_pressure(result.p, mesh, i_up)
-    p_th = tap_pressure(result.p, mesh, i_th)
-    p_out = tap_pressure(result.p, mesh, mesh.Nz - 1)
+    z_up = zs[1] - 0.5 * D
+    z_th = 0.5 * (zs[2] + zs[3])
+    i_up = int(np.argmin(np.abs(mesh.z_c - z_up)))
+    i_th = int(np.argmin(np.abs(mesh.z_c - z_th)))
+    p_up = tap_pressure(result.p, mesh, z_up)
+    p_th = tap_pressure(result.p, mesh, z_th)
+    p_out = tap_pressure(result.p, mesh, mesh.z_c[-1])
     dp = p_up - p_th
     rep.dp_measured = dp
     rep.dp_section_mean = (section_mean(result.p, mesh, i_up)

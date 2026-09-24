@@ -67,6 +67,8 @@ def build_parser() -> argparse.ArgumentParser:
     a("--Nr", type=int, default=36, help="Cells along the radius (default 36).")
     a("--clustering", type=float, default=2.7,
       help="Wall clustering: 0 = even cells, larger = thinner cells at the wall.")
+    a("--throat-refine", type=float, default=4.0,
+      help="Make the cells in the throat this many times shorter (1 = even spacing, default 4).")
     a("--turbulence", default="baldwin_lomax", choices=list(TURBULENCE_MODELS),
       help="Turbulence model (default baldwin_lomax).")
     a("--max-iter", type=int, default=400000, help="Iteration limit.")
@@ -152,6 +154,7 @@ def config_from_args(args) -> VenturiConfig:
         p_inlet=args.p_inlet, p_throat_target=args.p_throat, cd_design=args.cd_design,
         fluid=args.fluid, rho=args.rho, mu=args.mu, p_vap=args.p_vap,
         Nz=args.Nz, Nr=args.Nr, wall_clustering=args.clustering,
+        throat_refine=args.throat_refine,
         turbulence_model=args.turbulence, cfl=args.cfl,
         max_iter=args.max_iter, tol=args.tol,
         output_dir=args.output_dir or default_output_dir(args))
@@ -181,7 +184,8 @@ def run(args) -> int:
           f"outlet {geom.L_outlet*1000:.1f})")
 
     print(f"\n[3/6] Grid {config.Nz} x {config.Nr}")
-    mesh = build_fvmesh(geom, config.Nz, config.Nr, config.wall_clustering)
+    mesh = build_fvmesh(geom, config.Nz, config.Nr, config.wall_clustering,
+                        config.throat_refine)
     print(f"      {mesh.n_cells} cells, volume {mesh.vol.sum()*1e6:.2f} cm3, "
           f"smallest cell {mesh.vol.min()*1e9:.3f} mm3")
 

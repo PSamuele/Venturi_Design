@@ -31,34 +31,61 @@ def export_svg_geometry(geom, config, out_dir: str) -> str:
     return path
 
 
+# Blue = low, red = high, 20 bands with thin lines between them: easier to
+# read values off than a smooth gradient.
+CMAP = "RdYlBu_r"
+LEVELS = 20
+
+
+def _arrow_sample(mesh, n_axial: int = 36, n_radial: int = 8):
+    """Cell indices for the arrows: evenly spread along z and across the
+    section (in eta = r/R), so they don't crowd the thin wall cells."""
+    z = mesh.z_c
+    i_idx = np.unique(np.searchsorted(z, np.linspace(z[0], z[-1], n_axial)).clip(0, len(z) - 1))
+    eta_t = np.linspace(0.08, 0.92, n_radial)
+    j_idx = np.unique(np.abs(mesh.eta_c[None, :] - eta_t[:, None]).argmin(axis=1))
+    return np.ix_(i_idx, j_idx)
+
+
+def _field_panel(fig, ax, z, r, values, label, title):
+    c = ax.contourf(z, r, values, levels=LEVELS, cmap=CMAP)
+    ax.contour(z, r, values, levels=c.levels, colors="k", linewidths=0.2, alpha=0.4)
+    fig.colorbar(c, ax=ax, label=label)
+    ax.set_title(title)
+    ax.set_ylabel("r [m]")
+    return c
+
+
 def export_svg_results(mesh, uz, ur, p, geom, config, out_dir: str) -> str:
     """Speed map, pressure map and pressure along the axis (venturi_results.svg)."""
     path = os.path.join(out_dir, "venturi_results.svg")
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 12))
     z, r = mesh.z_cc, mesh.r_c
+    speed = np.hypot(uz, ur)
 
-    c1 = ax1.contourf(z, r, np.hypot(uz, ur), levels=50, cmap="viridis")
-    fig.colorbar(c1, ax=ax1, label="speed [m/s]")
-    sz, sr = max(1, z.shape[0] // 30), max(1, z.shape[1] // 15)
-    ax1.quiver(z[::sz, ::sr], r[::sz, ::sr], uz[::sz, ::sr], ur[::sz, ::sr],
-               color="white", alpha=0.7)
-    ax1.set_title("Speed (arrows show the flow direction)")
-    ax1.set_ylabel("r [m]")
+    _field_panel(fig, ax1, z, r, speed, "speed [m/s]",
+                 "Speed, arrows show the flow direction (radial scale stretched)")
+    # The radial axis is stretched many times compared with the axial one,
+    # so the cones look much steeper than they are. angles="xy" draws each
+    # arrow in the same stretched coordinates, so it follows the drawn wall;
+    # with the default the arrows keep their true (small) angle and look
+    # horizontal. Arrows have equal length: the colour already gives speed.
+    k = _arrow_sample(mesh)
+    s = np.maximum(speed[k], 1e-12)
+    ax1.quiver(z[k], r[k], uz[k] / s, ur[k] / s, angles="xy",
+               color="k", width=0.0016, headwidth=4, scale=45, pivot="mid")
 
-    c2 = ax2.contourf(z, r, p, levels=50, cmap="inferno")
-    fig.colorbar(c2, ax=ax2, label="pressure [Pa]")
-    ax2.set_title("Pressure")
-    ax2.set_ylabel("r [m]")
+    _field_panel(fig, ax2, z, r, p / 1000.0, "pressure [kPa]", "Pressure")
 
     # Frictionless reference: same flow rate, speed = Q / local area
     z_ax = z[:, 0]
     v_ideal = config.v_inlet * (config.R_inlet / np.maximum(geom.radius(z_ax), 1e-10)) ** 2
     p_ideal = config.p_inlet + 0.5 * config.rho * (config.v_inlet**2 - v_ideal**2)
-    ax3.plot(z_ax, p[:, 0], "r-", linewidth=2, label="computed (cells next to the axis)")
-    ax3.plot(z_ax, p_ideal, "k--", alpha=0.7, label="Bernoulli, no friction")
+    ax3.plot(z_ax, p[:, 0] / 1000.0, "r-", linewidth=2, label="computed (cells next to the axis)")
+    ax3.plot(z_ax, p_ideal / 1000.0, "k--", alpha=0.7, label="Bernoulli, no friction")
     ax3.set_title("Pressure along the axis")
     ax3.set_xlabel("z [m]")
-    ax3.set_ylabel("pressure [Pa]")
+    ax3.set_ylabel("pressure [kPa]")
     ax3.legend()
     ax3.grid(True, linestyle=":", alpha=0.6)
 

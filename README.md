@@ -14,7 +14,7 @@ the two pressures you want. It works out the flow rate, draws the tube, cuts
 the inside into small cells, solves the flow in it, checks whether the
 result can be trusted, and writes drawings and data files into `results/`.
 
-I wrote it because I wanted to understand projection methods by building
+I designed it because I wanted to understand projection methods by building
 one, rather than by reading about one. There is no OpenFOAM or Fluent
 underneath: the solver is plain Python with Numba for the heavy loops.
 
@@ -440,9 +440,9 @@ For a fluid that isn't in the list:
 
 ## A note on AI
 
-I used AI (Claude) as a coding assistant for the code: the scheme design,
-the implementation, and the diagnostic runs that tracked down the bugs
-described above.
+The numerical scheme, the design choices and the verification strategy are
+mine. I used AI (Claude) as a coding assistant to write the implementation
+and to run the diagnostics that tracked down the bugs described above.
 
 Judge it the way you'd judge any solver someone wrote themselves. The
 conservation properties are provable and measured, the Poiseuille check is

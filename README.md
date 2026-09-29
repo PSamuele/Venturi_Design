@@ -1,4 +1,4 @@
-# Venturi Design & CFD
+# Venturi Design
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)

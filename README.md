@@ -20,7 +20,7 @@ underneath: the solver is plain Python with Numba for the heavy loops.
 
 ## Running it
 
-Python 3.10 or newer. I've run it on Python 3.11 under Linux and 3.14 under Windows.
+Python 3.10 or newer. I've run it on Python 3.11 under Linux and 3.12 under Windows.
 
 ```bash
 python3 -m venv .venv
@@ -58,18 +58,19 @@ Enter to accept the value in brackets.
 One folder per case under `results/`, named after the inputs, so different
 cases don't overwrite each other.
 
-| file | what's in it | open with |
-|---|---|---|
-| `venturi_cfd_2d.vts` | speed and pressure on a flat slice through the axis | ParaView |
-| `venturi_cfd_3d.vts` | the same slice spun around the axis into a 3D volume | ParaView |
-| `venturi_profile.dxf` | the wall line, top and bottom, and the axis | any CAD program |
-| `venturi_3d.stl` | the inside wall as a triangle surface | CAD, 3D viewers |
-| `venturi_3d.step` | the fluid volume as a solid, only if `cadquery` is installed | CAD |
-| `venturi_geometry.svg` | drawing of the profile | browser |
-| `venturi_results.svg` | speed map, pressure map, pressure along the axis | browser |
-| `venturi_pointcloud.csv` | `x, y, z, pressure, velocity_magnitude`, one point per row | spreadsheet, Python |
-| `venturi_pointcloud.ply` | the same points for 3D viewers | ParaView, MeshLab |
-| `venturi_report.md` | inputs, geometry, every check | text editor |
+
+| file                     | what's in it                                                | open with           |
+| ------------------------ | ----------------------------------------------------------- | ------------------- |
+| `venturi_cfd_2d.vts`     | speed and pressure on a flat slice through the axis         | ParaView            |
+| `venturi_cfd_3d.vts`     | the same slice spun around the axis into a 3D volume        | ParaView            |
+| `venturi_profile.dxf`    | the wall line, top and bottom, and the axis                 | any CAD program     |
+| `venturi_3d.stl`         | the inside wall as a triangle surface                       | CAD, 3D viewers     |
+| `venturi_3d.step`        | the fluid volume as a solid, only if`cadquery` is installed | CAD                 |
+| `venturi_geometry.svg`   | drawing of the profile                                      | browser             |
+| `venturi_results.svg`    | speed map, pressure map, pressure along the axis            | browser             |
+| `venturi_pointcloud.csv` | `x, y, z, pressure, velocity_magnitude`, one point per row  | spreadsheet, Python |
+| `venturi_pointcloud.ply` | the same points for 3D viewers                              | ParaView, MeshLab   |
+| `venturi_report.md`      | inputs, geometry, every check                               | text editor         |
 
 The tube axis is `x` and the flow goes towards `+x`. The field files hold
 cell-centre values, so they stop half a cell short of the wall and the axis.
@@ -89,50 +90,55 @@ sea level), angles in degrees.
 
 **Fluid**
 
-| option | meaning | default |
-|---|---|---|
-| `--fluid NAME` | a fluid from `--list-fluids`, or `custom` | `water_20C` |
-| `--rho`, `--mu` | density [kg/m3] and viscosity [Pa s], needed with `custom` | - |
-| `--p-vap` | vapour pressure [Pa] for `custom`; 0 switches the cavitation check off | 0 |
+
+| option          | meaning                                                               | default     |
+| --------------- | --------------------------------------------------------------------- | ----------- |
+| `--fluid NAME`  | a fluid from`--list-fluids`, or `custom`                              | `water_20C` |
+| `--rho`, `--mu` | density [kg/m3] and viscosity [Pa s], needed with`custom`             | -           |
+| `--p-vap`       | vapour pressure [Pa] for`custom`; 0 switches the cavitation check off | 0           |
 
 **Tube**
 
-| option | meaning | default |
-|---|---|---|
-| `--D` | inside diameter of the pipe | 0.1 |
-| `--beta` | throat diameter / pipe diameter, between 0 and 1 | 0.5 |
-| `--alpha-conv` | full angle of the narrowing cone | 21 |
-| `--alpha-div` | full angle of the widening cone | 8 |
-| `--no-blend` | sharp corners instead of rounded ones | rounded |
+
+| option         | meaning                                          | default |
+| -------------- | ------------------------------------------------ | ------- |
+| `--D`          | inside diameter of the pipe                      | 0.1     |
+| `--beta`       | throat diameter / pipe diameter, between 0 and 1 | 0.5     |
+| `--alpha-conv` | full angle of the narrowing cone                 | 21      |
+| `--alpha-div`  | full angle of the widening cone                  | 8       |
+| `--no-blend`   | sharp corners instead of rounded ones            | rounded |
 
 **Operating point**
 
-| option | meaning | default |
-|---|---|---|
-| `--p-inlet` | pressure before the tube | 101325 |
-| `--p-throat` | pressure you want in the throat, lower than `--p-inlet` | 95000 |
-| `--cd-design` | discharge coefficient assumed when sizing (1 = no friction) | 1.0 |
+
+| option        | meaning                                                     | default |
+| ------------- | ----------------------------------------------------------- | ------- |
+| `--p-inlet`   | pressure before the tube                                    | 101325  |
+| `--p-throat`  | pressure you want in the throat, lower than`--p-inlet`      | 95000   |
+| `--cd-design` | discharge coefficient assumed when sizing (1 = no friction) | 1.0     |
 
 **Simulation**
 
-| option | meaning | default |
-|---|---|---|
-| `--Nz`, `--Nr` | cells along the tube, and from the axis to the wall | 90, 36 |
-| `--clustering` | how much thinner the cells get at the wall (0 = all equal) | 2.7 |
-| `--throat-refine` | how many times shorter the throat cells are: `auto` = 1/beta^2 (at most 6), or a number | `auto` |
-| `--turbulence` | `laminar`, `mixing_length` or `baldwin_lomax` | `baldwin_lomax` |
-| `--time-step` | `local`: each cell takes its own safe step; `global`: all take the smallest | `local` |
-| `--cfl` | time step safety factor, below 1; lower is slower but safer | 0.6 |
-| `--tol` | stop when the residual is below this | 1e-3 |
-| `--max-iter` | give up after this many steps | 400000 |
+
+| option            | meaning                                                                                | default         |
+| ----------------- | -------------------------------------------------------------------------------------- | --------------- |
+| `--Nz`, `--Nr`    | cells along the tube, and from the axis to the wall                                    | 90, 36          |
+| `--clustering`    | how much thinner the cells get at the wall (0 = all equal)                             | 2.7             |
+| `--throat-refine` | how many times shorter the throat cells are:`auto` = 1/beta^2 (at most 6), or a number | `auto`          |
+| `--turbulence`    | `laminar`, `mixing_length` or `baldwin_lomax`                                          | `baldwin_lomax` |
+| `--time-step`     | `local`: each cell takes its own safe step; `global`: all take the smallest            | `local`         |
+| `--cfl`           | time step safety factor, below 1; lower is slower but safer                            | 0.6             |
+| `--tol`           | stop when the residual is below this                                                   | 1e-3            |
+| `--max-iter`      | give up after this many steps                                                          | 400000          |
 
 **Checks and output**
 
-| option | meaning | default |
-|---|---|---|
-| `--cd-ref`, `--cd-tol` | compare C_d with a value of yours (from a datasheet or a test), within this % | none, 3 |
-| `--output-dir` | where the files go | `results/<name from the inputs>` |
-| `--no-export` | compute only, write nothing | off |
+
+| option                 | meaning                                                                       | default                          |
+| ---------------------- | ----------------------------------------------------------------------------- | -------------------------------- |
+| `--cd-ref`, `--cd-tol` | compare C_d with a value of yours (from a datasheet or a test), within this % | none, 3                          |
+| `--output-dir`         | where the files go                                                            | `results/<name from the inputs>` |
+| `--no-export`          | compute only, write nothing                                                   | off                              |
 
 The grid study takes all of these plus `--levels` (grids as `NzxNr`, comma
 separated, default `64x26,90x36,128x51`) and `--jobs` (grids solved at the
@@ -145,9 +151,8 @@ The screen shows six steps.
 **1. Sizing.** From the two pressures, Bernoulli plus conservation of mass
 give the speeds and the flow rate:
 
-    v_throat = C_design * sqrt( 2 * (p_inlet - p_throat) / (rho * (1 - beta^4)) )
-    v_inlet  = v_throat * beta^2
-
+v_throat = C_design * sqrt( 2 * (p_inlet - p_throat) / (rho * (1 - beta^4)) )
+v_inlet  = v_throat * beta^2
 With `C_design = 1` that's frictionless flow, so the simulated pressure drop
 comes out a few percent larger than the one you asked for. If you already
 know your tube's C_d, pass it with `--cd-design`. For a gas the density is
@@ -164,8 +169,7 @@ where the speed changes fastest, and shorter in the throat (see below).
 
 **4. Flow solution.** A line every 5000 steps:
 
-    iter  5000 | residual 5.5e-02 | dt 6.68e-05..3.77e-03 s | max nu_t/nu 594.7 | matrix refactored 298x
-
+iter  5000 | residual 5.5e-02 | dt 6.68e-05..3.77e-03 s | max nu_t/nu 594.7 | matrix refactored 298x
 `residual` is how much the flow still changes; the run stops below `--tol`.
 `dt` is the smallest and largest time step among the cells. `nu_t/nu` is how
 much stronger turbulent mixing is than plain viscosity, at its peak.
@@ -174,14 +178,15 @@ which happens when the time steps are updated.
 
 **5. Checks.**
 
-| check | what it means | passes when | if it fails |
-|---|---|---|---|
-| Inlet/outlet mass balance | what goes out equals what comes in | mismatch < 0.1 % | a bug, tell me |
-| Leftover divergence | no cell makes or loses fluid | < 1e-9 of the flow through the cell | a bug, tell me |
-| Steady state reached | the flow stopped changing | residual < `--tol` | see the last section |
-| First cell y+ | wall cells thin enough for the turbulence model | y+ < 5 | raise `--clustering` or `--Nr` |
-| No cavitation | lowest pressure stays above the vapour pressure, so the liquid doesn't boil | p_min > p_vap | raise `--p-throat` or `beta` |
-| C_d vs reference | only with `--cd-ref` | within `--cd-tol` | - |
+
+| check                     | what it means                                                               | passes when                         | if it fails                   |
+| ------------------------- | --------------------------------------------------------------------------- | ----------------------------------- | ----------------------------- |
+| Inlet/outlet mass balance | what goes out equals what comes in                                          | mismatch < 0.1 %                    | a bug, tell me                |
+| Leftover divergence       | no cell makes or loses fluid                                                | < 1e-9 of the flow through the cell | a bug, tell me                |
+| Steady state reached      | the flow stopped changing                                                   | residual <`--tol`                   | see the last section          |
+| First cell y+             | wall cells thin enough for the turbulence model                             | y+ < 5                              | raise`--clustering` or `--Nr` |
+| No cavitation             | lowest pressure stays above the vapour pressure, so the liquid doesn't boil | p_min > p_vap                       | raise`--p-throat` or `beta`   |
+| C_d vs reference          | only with`--cd-ref`                                                         | within`--cd-tol`                    | -                             |
 
 Then the numbers: C_d, the pressure drop between the wall taps, the same
 drop averaged over the cross-section (for comparison), the frictionless
@@ -266,16 +271,17 @@ answer with local and global steps. The global mode is still there
 
 ## What I checked
 
-| | |
-|---|---|
-| Mass balance in/out, default case | ~3e-13 % |
-| Divergence after projection | ~2.5e-13 (round-off) |
-| Uniform flow through the cones, fake divergence | < 1e-13 |
-| dp/dz error, 80 x 40 Poiseuille | 0.031 % |
-| Order of convergence, Poiseuille 20x10 / 40x20 / 80x40 | 2.0 |
-| Steady state vs time step, CFL 0.6 vs 0.15 | same to 1e-6 |
-| Local vs global time step | same to 1e-6 |
-| Tests | 72 |
+
+|                                                        |                      |
+| ------------------------------------------------------ | -------------------- |
+| Mass balance in/out, default case                      | ~3e-13 %             |
+| Divergence after projection                            | ~2.5e-13 (round-off) |
+| Uniform flow through the cones, fake divergence        | < 1e-13              |
+| dp/dz error, 80 x 40 Poiseuille                        | 0.031 %              |
+| Order of convergence, Poiseuille 20x10 / 40x20 / 80x40 | 2.0                  |
+| Steady state vs time step, CFL 0.6 vs 0.15             | same to 1e-6         |
+| Local vs global time step                              | same to 1e-6         |
+| Tests                                                  | 72                   |
 
 The Poiseuille numbers come from laminar flow in a straight pipe, where
 Hagen-Poiseuille gives the exact answer. It's the best check I have, because
@@ -286,12 +292,13 @@ at once against something that can't be argued with.
 sqrt(2) times more cells per direction, same spacing shape, residual target
 1e-4:
 
-| grid | settled | y+ | C_d |
-|---|---|---|---|
-| 64 x 26 | yes | 6.0 | 0.97003 |
-| 90 x 36 (default) | yes | 4.2 | 0.97491 |
-| 128 x 51 | yes | 3.1 | 0.97737 |
-| 180 x 72 | no | 2.1 | 0.97839 |
+
+| grid              | settled | y+  | C_d     |
+| ----------------- | ------- | --- | ------- |
+| 64 x 26           | yes     | 6.0 | 0.97003 |
+| 90 x 36 (default) | yes     | 4.2 | 0.97491 |
+| 128 x 51          | yes     | 3.1 | 0.97737 |
+| 180 x 72          | no      | 2.1 | 0.97839 |
 
 Each refinement adds about half of what the previous one did (+0.0049,
 +0.0025, +0.0010), which is what a second-order scheme should do. From the
@@ -331,14 +338,15 @@ C_d.
 
 One CPU core, `--tol 1e-3`:
 
-| case | global step | local step | C_d global / local |
-|---|---|---|---|
-| default, 90 x 36 | 116,891 steps, 44 s | 18,556 steps, 11 s | 0.97503 / 0.97510 |
-| 128 x 51 | doesn't settle in 400,000 | 34,061 steps, 34 s | - / 0.97728 |
-| beta = 0.4 | 216,695 steps, 81 s | 19,386 steps, 10 s | 0.97146 / 0.97145 |
-| beta = 0.7 | 63,686 steps, 24 s | 33,011 steps, 14 s | 0.97909 / 0.97932 |
-| air, 1325 Pa drop | doesn't settle in 400,000 | 16,115 steps, 9 s | - / 0.97429 |
-| mixing length model | 125,136 steps, 45 s | 19,931 steps, 9 s | 0.97353 / 0.97351 |
+
+| case                | global step               | local step         | C_d global / local |
+| ------------------- | ------------------------- | ------------------ | ------------------ |
+| default, 90 x 36    | 116,891 steps, 44 s       | 18,556 steps, 11 s | 0.97503 / 0.97510  |
+| 128 x 51            | doesn't settle in 400,000 | 34,061 steps, 34 s | - / 0.97728        |
+| beta = 0.4          | 216,695 steps, 81 s       | 19,386 steps, 10 s | 0.97146 / 0.97145  |
+| beta = 0.7          | 63,686 steps, 24 s        | 33,011 steps, 14 s | 0.97909 / 0.97932  |
+| air, 1325 Pa drop   | doesn't settle in 400,000 | 16,115 steps, 9 s  | - / 0.97429        |
+| mixing length model | 125,136 steps, 45 s       | 19,931 steps, 9 s  | 0.97353 / 0.97351  |
 
 Where both settle, they agree on C_d within 0.025 %.
 
@@ -353,28 +361,29 @@ there.
 
 ## Symbols
 
-| symbol | meaning | unit |
-|---|---|---|
-| D, d | pipe and throat diameter, d = beta * D | m |
-| beta | d / D | - |
-| alpha_conv, alpha_div | full angle of the narrowing and widening cone | deg |
-| z, r | distance along the axis, distance from the axis | m |
-| R(z) | wall radius at z | m |
-| eta | r / R(z): 0 on the axis, 1 at the wall | - |
-| u_z, u_r | speed along the axis and towards the wall | m/s |
-| p, p_vap | pressure, vapour pressure (below it a liquid boils) | Pa |
-| rho, mu, nu | density, viscosity, nu = mu / rho | kg/m3, Pa s, m2/s |
-| nu_t | eddy viscosity: extra mixing from turbulence, treated as extra viscosity | m2/s |
-| Q | flow rate | m3/s |
-| Re_D | Reynolds number rho v D / mu; below ~2300 smooth (laminar), above ~4000 turbulent | - |
-| C_d | discharge coefficient: Q / (A_throat sqrt(2 dp / (rho (1 - beta^4)))) | - |
-| sigma | cavitation number (p_throat - p_vap) / (rho v_throat^2 / 2); small means close to boiling | - |
-| Ma | Mach number, speed / speed of sound | - |
-| y+ | distance of the first cell centre from the wall, scaled by the wall friction | - |
-| CFL | time step x speed / cell size, must stay below 1 | - |
-| dt | time step | s |
-| residual | largest change of speed per unit time, scaled by tube length / throat speed^2 | - |
-| h, p, GCI | grid study: cell size (1/sqrt(cells)), observed order (error goes like h^p), error band on the finest result | -, -, % |
+
+| symbol                | meaning                                                                                                      | unit              |
+| --------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------- |
+| D, d                  | pipe and throat diameter, d = beta * D                                                                       | m                 |
+| beta                  | d / D                                                                                                        | -                 |
+| alpha_conv, alpha_div | full angle of the narrowing and widening cone                                                                | deg               |
+| z, r                  | distance along the axis, distance from the axis                                                              | m                 |
+| R(z)                  | wall radius at z                                                                                             | m                 |
+| eta                   | r / R(z): 0 on the axis, 1 at the wall                                                                       | -                 |
+| u_z, u_r              | speed along the axis and towards the wall                                                                    | m/s               |
+| p, p_vap              | pressure, vapour pressure (below it a liquid boils)                                                          | Pa                |
+| rho, mu, nu           | density, viscosity, nu = mu / rho                                                                            | kg/m3, Pa s, m2/s |
+| nu_t                  | eddy viscosity: extra mixing from turbulence, treated as extra viscosity                                     | m2/s              |
+| Q                     | flow rate                                                                                                    | m3/s              |
+| Re_D                  | Reynolds number rho v D / mu; below ~2300 smooth (laminar), above ~4000 turbulent                            | -                 |
+| C_d                   | discharge coefficient: Q / (A_throat sqrt(2 dp / (rho (1 - beta^4))))                                        | -                 |
+| sigma                 | cavitation number (p_throat - p_vap) / (rho v_throat^2 / 2); small means close to boiling                    | -                 |
+| Ma                    | Mach number, speed / speed of sound                                                                          | -                 |
+| y+                    | distance of the first cell centre from the wall, scaled by the wall friction                                 | -                 |
+| CFL                   | time step x speed / cell size, must stay below 1                                                             | -                 |
+| dt                    | time step                                                                                                    | s                 |
+| residual              | largest change of speed per unit time, scaled by tube length / throat speed^2                                | -                 |
+| h, p, GCI             | grid study: cell size (1/sqrt(cells)), observed order (error goes like h^p), error band on the finest result | -, -, %           |
 
 ## Layout
 
@@ -399,7 +408,6 @@ tests/
 pytest.ini                 tells pytest where the package is
 results/                   made by the runs, not in git
 ```
-
 ## Tests
 
 ```bash
@@ -407,15 +415,15 @@ pip install -r requirements-dev.txt
 pytest tests/          # 72 tests, about 10 seconds
 ```
 
-| file | what it checks |
-|---|---|
-| `test_conservation.py` | volumes add up; no fake mass in uniform flow; the projection removes all imbalance, leaves inlet and wall alone, and its matrix is symmetric, also with a different time step on every face and on the refined throat grid |
-| `test_physics.py` | Poiseuille pressure gradient and profile; same answer at different CFL and with local vs global step; inlet profile |
-| `test_turbulence_models.py` | eddy viscosity never negative, zero for laminar, large at high Re; unknown models refused |
-| `test_geometry.py` | radius and slope continuous at the rounded corners |
-| `test_inputs.py` | bad inputs refused; sizing; gas density; Mach and cavitation warnings; options reach the program; throat refinement rule; optimiser; wall taps |
-| `test_grid_study.py` | extrapolation and GCI recover a known power law exactly; up-and-down results flagged |
-| `test_export.py` | every file puts the right value on the right point; missing libraries skip cleanly |
+| file                        | what it checks                                                                                                                                                                                                             |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `test_conservation.py`      | volumes add up; no fake mass in uniform flow; the projection removes all imbalance, leaves inlet and wall alone, and its matrix is symmetric, also with a different time step on every face and on the refined throat grid |
+| `test_physics.py`           | Poiseuille pressure gradient and profile; same answer at different CFL and with local vs global step; inlet profile                                                                                                        |
+| `test_turbulence_models.py` | eddy viscosity never negative, zero for laminar, large at high Re; unknown models refused                                                                                                                                  |
+| `test_geometry.py`          | radius and slope continuous at the rounded corners                                                                                                                                                                         |
+| `test_inputs.py`            | bad inputs refused; sizing; gas density; Mach and cavitation warnings; options reach the program; throat refinement rule; optimiser; wall taps                                                                             |
+| `test_grid_study.py`        | extrapolation and GCI recover a known power law exactly; up-and-down results flagged                                                                                                                                       |
+| `test_export.py`            | every file puts the right value on the right point; missing libraries skip cleanly                                                                                                                                         |
 
 ## When something fails
 

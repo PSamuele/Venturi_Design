@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)
 
-A Venturi tube designer with its own flow solver attached.
+Venturi tube designer with its own flow solver attached.
 
 A Venturi tube is a pipe that narrows and widens again. In the narrow part
 (the throat) the fluid speeds up and its pressure drops, and that pressure
@@ -53,7 +53,7 @@ picks D, beta and the widening angle from quick hand formulas
 (`venturi/optimizer.py`). The flow solver then checks the result. Press
 Enter to accept the value in brackets.
 
-## What comes out
+## Outputs
 
 One folder per case under `results/`, named after the inputs, so different
 cases don't overwrite each other.
@@ -194,7 +194,7 @@ drop, and how much of the drop is recovered in the widening cone.
 
 **6. Files.** See [What comes out](#what-comes-out).
 
-## Why the solver is built this way
+## Choices
 
 Most of these choices only make sense once you've seen the alternative fail,
 so I've written down what went wrong rather than just what the code does.
@@ -202,8 +202,7 @@ so I've written down what went wrong rather than just what the code does.
 **Finite volumes rather than finite differences.** The flux through a face is
 one number, shared by the two cells on either side. Add up every cell's
 balance and the interior terms cancel in pairs, leaving only `Q_in - Q_out`.
-So mass conservation isn't something the solver works towards, it's just
-algebra.
+The goal here it to have mass conservation directly from algebra.
 
 **The pressure matrix is assembled from the same face coefficients that
 correct the fluxes.** A projection (the step that makes every cell's inflow
@@ -212,26 +211,23 @@ the pressure matrix is literally `D @ G`, divergence times gradient. Build
 the Laplacian separately with a slightly different stencil and the
 projection stops removing divergence, but everything still runs and
 converges to something plausible-looking. This is the failure mode I started
-from, and it's nasty precisely because nothing crashes.
+from.
 
 **Cone faces use exact geometric coefficients** (`Cr`, `Cz`) instead of
 `area * (u.n)` at the cell centre. With the naive version a perfectly
 uniform flow generates a fake divergence of order h^2, right in the cones,
 exactly where you care. The projection can't tell it's fake and invents
-pressure to cancel it. With the split form, uniform flow gives zero
-divergence identically.
+pressure to cancel it. Uniform flow gives zero divergence identically.
 
 **Fluxes are the primary variable**, cell velocities are rebuilt from them.
 That's the MAC layout, so the pressure gradient correcting a flux only
-touches the two cells next to it. No checkerboard, no Rhie-Chow.
+touches the two cells next to it.
 
 **C_d, not Bernoulli.** Bernoulli ignores friction, so a correct result
 can't match it: the real pressure drop is always a few percent higher.
-"Within 5 % of Bernoulli" fails good answers and passes answers that are
-wrong in the convenient direction. C_d is the real flow rate divided by the
-frictionless one for the same measured drop, so it says how far from ideal
-the tube is. The program always computes it; `--cd-ref` compares it with a
-value of yours.
+C_d is the real flow rate divided by the frictionless one for the same measured drop,
+so it says how far from ideal the tube is.
+The program always computes it; `--cd-ref` compares it with a value of yours.
 
 **Taps read the wall.** A real tube measures pressure through small holes
 in the wall, 0.5 D before the narrowing cone and in the middle of the
@@ -259,17 +255,16 @@ depend on the steps, and an earlier shortcut of mine did exactly that: it
 treated radial diffusion implicitly, ran 7 times faster, looked fine, and
 then I halved the CFL and the error halved too, four times in a row. Error
 that scales with dt means the converged solution itself depends on the time
-step. That code is gone.
+step.
 
 The local step avoids it by putting the step into both halves of the
 update. Each face uses the smaller step of its two cells, in the prediction
 and in the pressure correction, and the pressure matrix is weighted by the
 same steps. When nothing changes any more, the step multiplies zero and
-drops out. The tests check it: same answer at CFL 0.6 and 0.15, and same
-answer with local and global steps. The global mode is still there
-(`--time-step global`) and gives the old solver's result bit for bit.
+drops out. Same answer at CFL 0.6 and 0.15, and same answer with local and global steps.
+The global mode is still there (`--time-step global`) and gives the old solver's result bit for bit.
 
-## What I checked
+## Checks
 
 
 |                                                        |                      |
@@ -313,7 +308,7 @@ came out 0.97839 to five digits in two runs stopped at different moments,
 and it's where the trend predicts (0.97854). So the hovering doesn't move
 C_d.
 
-## What I have not shown, and the approximations
+## Approximations & Annotations
 
 - The finest grids aren't fully settled, so the error estimate rests on
   64 x 26, 90 x 36 and 128 x 51, and 64 x 26 has y+ = 6, a bit above what
@@ -408,12 +403,14 @@ tests/
 pytest.ini                 tells pytest where the package is
 results/                   made by the runs, not in git
 ```
+
 ## Tests
 
 ```bash
 pip install -r requirements-dev.txt
 pytest tests/          # 72 tests, about 10 seconds
 ```
+
 
 | file                        | what it checks                                                                                                                                                                                                             |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

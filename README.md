@@ -64,8 +64,10 @@ cases don't overwrite each other.
 | `venturi_cfd_2d.vts`     | speed and pressure on a flat slice through the axis         | ParaView            |
 | `venturi_cfd_3d.vts`     | the same slice spun around the axis into a 3D volume        | ParaView            |
 | `venturi_profile.dxf`    | the wall line, top and bottom, and the axis                 | any CAD program     |
-| `venturi_3d.stl`         | the inside wall as a triangle surface                       | CAD, 3D viewers     |
-| `venturi_3d.step`        | the fluid volume as a solid, only if`cadquery` is installed | CAD                 |
+| `venturi_3d.stl`         | the hollow tube as a closed mesh, in mm                     | slicer, 3D printing |
+| `venturi_3d.step`        | the hollow tube as a solid, in mm, needs `cadquery`         | CAD                 |
+| `venturi_fluid.stl`      | the fluid volume as a closed mesh, in mm                    | CFD mesher          |
+| `venturi_fluid.step`     | the fluid volume as a solid, in mm, needs `cadquery`        | CAD, CFD mesher     |
 | `venturi_geometry.svg`   | drawing of the profile                                      | browser             |
 | `venturi_results.svg`    | speed map, pressure map, pressure along the axis            | browser             |
 | `venturi_pointcloud.csv` | `x, y, z, pressure, velocity_magnitude`, one point per row  | spreadsheet, Python |
@@ -75,10 +77,16 @@ cases don't overwrite each other.
 The tube axis is `x` and the flow goes towards `+x`. The field files hold
 cell-centre values, so they stop half a cell short of the wall and the axis.
 
+The tube has a constant wall (`--wall`, 3 mm by default), a bell mouth at the
+inlet and a rounded lip at the outlet. The bell mouth starts upstream of
+`x = 0`, which stays the inlet plane of the flow solution, and it widens the
+fluid files too: their inlet plane is larger than the solved pipe.
+
 `cadquery` isn't in requirements.txt on purpose. Install it if you want the
-STEP file; without it you get the other nine files and a warning. The same
+STEP files; without it you get the other files and a warning. The same
 goes for `pyvista` and `ezdxf`: if one is missing, the files that need it
-are skipped with a warning and are not listed as written.
+are skipped with a warning and are not listed as written. The STL files need
+no extra library.
 
 The grid study writes `grid_study.md` and `grid_study.csv` to
 `results/grid_study_<case>/`.
@@ -107,6 +115,7 @@ sea level), angles in degrees.
 | `--alpha-conv` | full angle of the narrowing cone                 | 21      |
 | `--alpha-div`  | full angle of the widening cone                  | 8       |
 | `--no-blend`   | sharp corners instead of rounded ones            | rounded |
+| `--wall`       | tube wall thickness of the CAD files             | 0.003   |
 
 **Operating point**
 
@@ -326,8 +335,8 @@ C_d.
   there that shrinks with the grid. It's probably behind the small wobble
   (about 40 Pa) of the wall pressure just after the throat corner.
 - No cavitation model, no swirl, no heat.
-- Not covered by the tests: the STEP export (it needs `cadquery`) and the
-  interactive mode.
+- Not covered by the tests: the interactive mode. The STEP tests are skipped
+  when `cadquery` is missing.
 
 ## Speed
 

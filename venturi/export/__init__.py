@@ -5,8 +5,8 @@ from __future__ import annotations
 import os
 from typing import List, Optional
 
-from .cad import export_dxf, export_step
-from .paraview import export_paraview_2d, export_paraview_3d, export_stl
+from .cad import export_dxf, export_fluid_step, export_fluid_stl, export_step, export_stl
+from .paraview import export_paraview_2d, export_paraview_3d
 from .plots import export_svg_geometry, export_svg_results
 from .tables import export_pointcloud, export_report
 
@@ -27,6 +27,8 @@ def export_all(mesh, uz, ur, p, geom, config, validation: Optional[dict] = None)
         export_dxf(geom, out),
         export_stl(geom, out),
         export_step(geom, out),
+        export_fluid_stl(geom, out),
+        export_fluid_step(geom, out),
         export_svg_geometry(geom, config, out),
         export_svg_results(mesh, uz, ur, p, geom, config, out),
         *export_pointcloud(mesh, uz, ur, p, out),

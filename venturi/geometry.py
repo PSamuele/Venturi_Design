@@ -19,7 +19,7 @@ recomputed from the capped T.
 from __future__ import annotations
 
 import math
-from typing import List, Tuple
+from typing import List, NamedTuple, Optional, Tuple
 
 import numpy as np
 
@@ -29,6 +29,24 @@ from .config import VenturiConfig
 # sign = +1: the arc bulges outwards (centre below the wall)
 # sign = -1: the arc bulges inwards  (centre above the wall)
 Arc = Tuple[float, float, float, float, float, int]
+
+Point = Tuple[float, float]
+
+
+class Segment(NamedTuple):
+    """One exact piece of a (z, r) profile: a line, or an arc if centre is set."""
+    start: Point
+    end: Point
+    mid: Optional[Point] = None      # a point on the arc, between start and end
+    centre: Optional[Point] = None
+
+
+def arc_segment(start: Point, end: Point, centre: Point) -> Segment:
+    """Arc of less than 180 deg, from start to end around centre."""
+    Ra = math.hypot(start[0] - centre[0], start[1] - centre[1])
+    dz, dr = start[0] + end[0] - 2 * centre[0], start[1] + end[1] - 2 * centre[1]
+    scale = Ra / math.hypot(dz, dr)
+    return Segment(start, end, (centre[0] + dz * scale, centre[1] + dr * scale), centre)
 
 
 class VenturiGeometry:
@@ -128,6 +146,25 @@ class VenturiGeometry:
         """n_points evenly spaced (z, R(z)) pairs from inlet to outlet."""
         z = np.linspace(0.0, self.L_total, n_points)
         return z, self.radius(z)
+
+    def wall_segments(self) -> List[Segment]:
+        """The wall from inlet to outlet as exact lines and arcs [m]."""
+        zs = self.z_stations
+        R_in, R_th = float(self.R_inlet), float(self.R_throat)
+        corners = [(float(z), r) for z, r in
+                   zip(zs, (R_in, R_in, R_th, R_th, R_in, R_in))]
+        if not self.arcs:
+            return [Segment(a, b) for a, b in zip(corners, corners[1:])]
+        segments: List[Segment] = []
+        here = corners[0]
+        for z_s, z_e, z_c, r_c, Ra, sign in self.arcs:
+            start = (float(z_s), float(r_c + sign * math.sqrt(Ra**2 - (z_s - z_c)**2)))
+            end = (float(z_e), float(r_c + sign * math.sqrt(Ra**2 - (z_e - z_c)**2)))
+            segments.append(Segment(here, start))
+            segments.append(arc_segment(start, end, (float(z_c), float(r_c))))
+            here = end
+        segments.append(Segment(here, corners[-1]))
+        return segments
 
 
 def create_venturi_geometry(config: VenturiConfig) -> VenturiGeometry:

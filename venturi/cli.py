@@ -67,6 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
     a("--alpha-conv", type=float, default=21.0, help="Total angle of the converging cone [deg].")
     a("--alpha-div", type=float, default=8.0, help="Total angle of the diverging cone [deg].")
     a("--no-blend", action="store_true", help="Sharp corners instead of rounded ones.")
+    a("--wall", type=float, default=0.003, help="Tube wall thickness of the CAD files [m].")
 
     a("--p-inlet", type=float, default=101325.0, help="Upstream pressure [Pa].")
     a("--p-throat", type=float, default=95000.0, help="Wanted throat pressure [Pa].")
@@ -164,7 +165,7 @@ def config_from_args(args) -> VenturiConfig:
     return VenturiConfig(
         D=args.D, beta=args.beta,
         alpha_conv_deg=args.alpha_conv, alpha_div_deg=args.alpha_div,
-        use_blend_radii=not args.no_blend,
+        use_blend_radii=not args.no_blend, wall_thickness=args.wall,
         p_inlet=args.p_inlet, p_throat_target=args.p_throat, cd_design=args.cd_design,
         fluid=args.fluid, rho=args.rho, mu=args.mu, p_vap=args.p_vap,
         Nz=args.Nz, Nr=args.Nr, wall_clustering=args.clustering,

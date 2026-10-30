@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 import numpy as np
 
 from . import paraview
+from .cad import tube_envelope
 
 
 def export_pointcloud(mesh, uz, ur, p, out_dir: str, n_angles: int = 8) -> Tuple[str, str]:
@@ -48,6 +49,7 @@ def export_pointcloud(mesh, uz, ur, p, out_dir: str, n_angles: int = 8) -> Tuple
 def export_report(config, geom, out_dir: str, validation: Optional[dict] = None) -> str:
     """Short Markdown summary of the run (venturi_report.md)."""
     path = os.path.join(out_dir, "venturi_report.md")
+    tube_length, tube_diameter = tube_envelope(geom)
     lines = [
         "# Venturi run report", "",
         "## Inputs", "",
@@ -60,6 +62,9 @@ def export_report(config, geom, out_dir: str, validation: Optional[dict] = None)
         f"- D = {config.D*1e3:.2f} mm, d = {config.d*1e3:.2f} mm, beta = {config.beta:.3f}",
         f"- alpha_conv = {config.alpha_conv_deg:.1f} deg, alpha_div = {config.alpha_div_deg:.1f} deg",
         f"- total length = {geom.L_total*1e3:.2f} mm",
+        f"- CAD tube: wall = {config.wall_thickness*1e3:.2f} mm, overall length = "
+        f"{tube_length:.2f} mm, largest diameter = {tube_diameter:.2f} mm "
+        f"(bell mouth at the inlet)",
         "",
     ]
     if validation:

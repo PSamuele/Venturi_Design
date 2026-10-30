@@ -1,4 +1,4 @@
-"""ParaView files (.vts) and the wall surface (.stl). Need pyvista."""
+"""ParaView files (.vts). Need pyvista."""
 
 from __future__ import annotations
 
@@ -65,21 +65,4 @@ def export_paraview_3d(mesh, uz, ur, p, out_dir: str, n_theta: int = 72) -> Opti
     ur3 = ur[:, :, None]
     _attach_fields(grid, rep(uz), ur3 * np.cos(th), ur3 * np.sin(th), rep(p))
     grid.save(path)
-    return path
-
-
-def export_stl(geom, out_dir: str) -> Optional[str]:
-    """Inner wall as a triangle surface (venturi_3d.stl), axis along x."""
-    if pv is None:
-        print("      Warning: pyvista is not installed; skipping venturi_3d.stl.")
-        return None
-    path = os.path.join(out_dir, "venturi_3d.stl")
-    z, r = geom.profile_points(200)
-    points = np.column_stack((z, r, np.zeros_like(z)))
-    n = len(points)
-    # VTK line list: [2, i0, i1, 2, i1, i2, ...]
-    lines = np.column_stack((np.full(n - 1, 2), np.arange(n - 1), np.arange(1, n))).ravel()
-    surf = pv.PolyData(points, lines=lines).extrude_rotate(
-        resolution=72, angle=360.0, capping=False, rotation_axis=(1.0, 0.0, 0.0))
-    surf.triangulate().save(path)
     return path

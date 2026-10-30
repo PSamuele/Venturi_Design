@@ -50,6 +50,7 @@ class VenturiConfig:
     blend_R2_ratio: float = 0.2      # corner radius cone -> throat, / d
     blend_R3_ratio: float = 0.2      # corner radius throat -> cone, / d
     blend_R4_ratio: float = 0.2      # corner radius cone -> outlet, / D
+    wall_thickness: float = 0.003    # tube wall of the CAD files [m]
 
     # --- operating point ----------------------------------------------------
     p_inlet: float = 101325.0                  # upstream pressure [Pa]
@@ -109,6 +110,8 @@ class VenturiConfig:
             raise ValueError(f"D must be positive, got {self.D}.")
         if not 0.0 < self.beta < 1.0:
             raise ValueError(f"beta must be between 0 and 1 (excluded), got {self.beta}.")
+        if self.wall_thickness <= 0.0:
+            raise ValueError(f"wall_thickness must be positive, got {self.wall_thickness}.")
         for name in ("alpha_conv_deg", "alpha_div_deg"):
             a = getattr(self, name)
             if not 0.0 < a < 180.0:

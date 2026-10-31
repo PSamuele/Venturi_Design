@@ -3,7 +3,9 @@ import math
 
 import pytest
 
-from venturi.grid_study import gci, parse_levels
+from venturi.cli import build_parser
+from venturi.grid_study import (QUANTITIES, build_report, default_levels, gci,
+                                parse_levels, study_levels)
 
 
 @pytest.mark.parametrize("p_true", [1.0, 1.5, 2.0])
@@ -30,6 +32,75 @@ def test_oscillatory_convergence_is_flagged():
 def test_identical_results_mean_no_grid_error():
     g = gci((1.0, 1.4, 2.0), [0.975, 0.975, 0.975])
     assert g.gci21 == 0.0 and g.phi_ext == 0.975
+
+
+def test_changes_that_grow_with_refinement_are_flagged():
+    """The bars in the formula for p would otherwise call this order 2.3."""
+    g = gci((1.0, 1.4, 2.0), [1.03, 1.01, 1.00])
+    assert g.status == "diverging"
+    assert not g.usable
+
+
+def test_unequal_ratios_can_shrink_the_change_and_still_converge():
+    """A smaller step r32 gives a smaller e32 on a perfectly good sequence."""
+    h = (1.0, 1.8, 2.2)
+    phi = [0.975 + 0.004 * hi ** 2 for hi in h]
+    assert abs(phi[2] - phi[1]) < abs(phi[1] - phi[0])
+    assert gci(h, phi).status == "converging"
+
+
+@pytest.mark.parametrize("phi", [[0.97, 0.975, 0.975], [0.975, 0.975, 0.97]])
+def test_one_change_of_zero_gives_no_estimate(phi):
+    """It must not read as 'grid independent': the other change is not zero."""
+    g = gci((1.0, 1.4, 2.0), phi)
+    assert g.status == "unresolved"
+    assert not g.usable and math.isnan(g.gci21)
+
+
+def test_a_failed_case_gives_no_estimate():
+    assert gci((1.0, 1.4, 2.0), [float("nan"), 0.97, 0.96]).status == "unresolved"
+
+
+def test_steep_triplet_gives_no_estimate_instead_of_crashing():
+    g = gci((1.0, 1.311, 1.311 * 2.16), [1.0, 0.99624, 0.99180])
+    assert g.status in ("converging", "unresolved")
+
+
+def test_default_levels_surround_the_grid():
+    assert default_levels(90, 36) == [(64, 26), (90, 36), (128, 51)]
+
+
+@pytest.mark.parametrize("text", ["64x26,90x36", "64x26,90", "64x26,26x64,90x36"])
+def test_bad_levels_are_refused(text):
+    with pytest.raises(ValueError):
+        study_levels(text, 90, 36)
+
+
+def test_grid_study_only_runs_when_asked():
+    assert build_parser().parse_args([]).grid_study is False
+    assert build_parser().parse_args(["--grid-study"]).grid_study is True
+
+
+def _row(nz, nr, scale):
+    """Results of a grid, every quantity off by scale."""
+    row = dict(Nz=nz, Nr=nr, cells=nz * nr, iters=100, converged=True, residual=1e-4,
+               time_s=1.0, y_plus=3.0, p_min=95000.0)
+    row.update({q.key: 1.0 + scale for q in QUANTITIES})
+    return row
+
+
+def test_report_gives_error_and_gci_of_every_quantity():
+    h = [(nz * nr) ** -0.5 for nz, nr in ((128, 51), (90, 36), (64, 26))]
+    rows = [_row(nz, nr, 500 * hi ** 2 / 1e3)
+            for (nz, nr), hi in zip(((128, 51), (90, 36), (64, 26)), h)]
+    base = {q.key: 1.1 for q in QUANTITIES}
+    text, records = build_report(rows, "case", "local", 1e-4, 4.0, 0.78, base, "90x36")
+    assert len(records) == len(QUANTITIES)
+    for q in QUANTITIES:
+        assert q.label in text
+    assert all(r["behaviour"] == "converging" and r["gci_pct"] > 0.0 for r in records)
+    assert all(r["order"] == pytest.approx(2.0, rel=1e-6) for r in records)
+    assert "## This run" in text
 
 
 def test_cell_sizes_must_be_finest_first():

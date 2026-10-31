@@ -62,8 +62,23 @@ class ValidationReport:
     dp_section_mean: float = 0.0
     dp_ideal: float = 0.0
     pressure_recovery: float = 0.0
+    dp_loss: float = 0.0          # pressure not recovered, upstream tap -> outlet
+    loss_coef: float = 0.0        # dp_loss / (0.5 * rho * v_inlet^2)
+    p_up: float = 0.0             # upstream tap
+    p_throat: float = 0.0         # throat tap
+    p_out: float = 0.0            # last cell at the wall
     p_min: float = 0.0
+    z_p_min: float = 0.0          # where p_min is, from the inlet [m]
+    dp_max: float = 0.0           # p_inlet - p_min
+    cavitation_margin: float = 0.0  # p_min - p_vap
+    u_max: float = 0.0            # highest speed in the field
+    Q: float = 0.0
+    v_inlet: float = 0.0
+    v_throat: float = 0.0
     Re_D: float = 0.0
+    Re_throat: float = 0.0
+    sigma: float = 0.0            # cavitation number
+    y_plus_max: float = 0.0
 
     @property
     def all_passed(self) -> bool:
@@ -101,7 +116,11 @@ def validate(result, mesh, geom, config, cd_ref: Optional[float] = None,
         cd_ref: reference C_d. If given, C_d must be within cd_tol_pct of it.
         cd_tol_pct: allowed deviation from cd_ref [%].
     """
-    rep = ValidationReport(Re_D=float(config.Re_D), Cd_ref=cd_ref)
+    rep = ValidationReport(Re_D=float(config.Re_D), Cd_ref=cd_ref,
+                           Re_throat=float(config.Re_throat), Q=float(config.Q),
+                           v_inlet=float(config.v_inlet), v_throat=float(config.v_throat),
+                           sigma=float(config.cavitation_number),
+                           y_plus_max=float(result.y_plus_max))
     D, beta, rho = float(config.D), float(config.beta), float(config.rho)
 
     # ------------------------------------------------------- pressure taps
@@ -119,6 +138,10 @@ def validate(result, mesh, geom, config, cd_ref: Optional[float] = None,
                            - section_mean(result.p, mesh, i_th))
     rep.dp_ideal = float(config.dp_ideal)
     rep.pressure_recovery = (p_out - p_th) / dp if dp != 0.0 else 0.0
+    rep.p_up, rep.p_throat, rep.p_out = p_up, p_th, p_out
+    rep.dp_loss = p_up - p_out
+    rep.loss_coef = rep.dp_loss / (0.5 * rho * float(config.v_inlet) ** 2)
+    rep.u_max = float(np.hypot(result.uz, result.ur).max())
 
     # ------------------------------------------------------- mass balance
     Q_in = float(result.F_ax[0, :].sum())
@@ -154,6 +177,9 @@ def validate(result, mesh, geom, config, cd_ref: Optional[float] = None,
 
     # --------------------------------------------------------- cavitation
     rep.p_min = float(result.p.min())
+    rep.z_p_min = float(mesh.z_c[np.unravel_index(np.argmin(result.p), result.p.shape)[0]])
+    rep.dp_max = float(config.p_inlet) - rep.p_min
+    rep.cavitation_margin = rep.p_min - float(config.p_vap)
     if config.p_vap > 0.0:
         rep.checks.append(Check(
             "No cavitation", rep.p_min, f"> p_vap = {config.p_vap:.0f} Pa",
@@ -183,10 +209,20 @@ def print_report(rep: ValidationReport) -> None:
             print(f"             {c.note}")
     print("      " + "-" * 60)
     print(f"      C_d (computed)          : {rep.Cd:.4f}")
+    print(f"      flow rate               : {rep.Q*1e3:.3f} L/s")
+    print(f"      mean speed pipe / throat: {rep.v_inlet:.3f} / {rep.v_throat:.3f} m/s")
+    print(f"      highest speed           : {rep.u_max:.3f} m/s")
+    print(f"      Re pipe / throat        : {rep.Re_D:.0f} / {rep.Re_throat:.0f}")
+    print(f"      upstream tap            : {rep.p_up:.1f} Pa")
+    print(f"      throat tap              : {rep.p_throat:.1f} Pa")
+    print(f"      outlet                  : {rep.p_out:.1f} Pa")
     print(f"      dp between the wall taps: {rep.dp_measured:.1f} Pa")
     print(f"      dp of section averages  : {rep.dp_section_mean:.1f} Pa (for comparison)")
     print(f"      dp without friction     : {rep.dp_ideal:.1f} Pa (for comparison)")
     print(f"      pressure recovered      : {rep.pressure_recovery*100:.1f} % of dp")
+    print(f"      permanent pressure loss : {rep.dp_loss:.1f} Pa (K = {rep.loss_coef:.3f})")
+    print(f"      lowest pressure         : {rep.p_min:.1f} Pa, {rep.z_p_min*1e3:.1f} mm from the inlet")
+    print(f"      margin to boiling       : {rep.cavitation_margin:.1f} Pa (sigma = {rep.sigma:.3f})")
     for w in rep.warnings:
         print(f"      [WARNING] {w}")
 
@@ -203,8 +239,21 @@ def to_dict(rep: ValidationReport) -> Dict[str, Any]:
     d["dp of section averages [Pa]"] = round(rep.dp_section_mean, 1)
     d["dp without friction [Pa]"] = round(rep.dp_ideal, 1)
     d["pressure recovered [%]"] = round(rep.pressure_recovery * 100.0, 1)
+    d["permanent pressure loss [Pa]"] = round(rep.dp_loss, 1)
+    d["loss coefficient K (on pipe speed)"] = round(rep.loss_coef, 3)
+    d["upstream tap pressure [Pa]"] = round(rep.p_up, 1)
+    d["throat tap pressure [Pa]"] = round(rep.p_throat, 1)
+    d["outlet pressure [Pa]"] = round(rep.p_out, 1)
     d["lowest pressure [Pa]"] = round(rep.p_min, 1)
+    d["lowest pressure, from the inlet [mm]"] = round(rep.z_p_min * 1e3, 1)
+    d["margin to boiling [Pa]"] = round(rep.cavitation_margin, 1)
+    d["cavitation number sigma"] = round(rep.sigma, 3)
+    d["mean speed, pipe [m/s]"] = round(rep.v_inlet, 3)
+    d["mean speed, throat [m/s]"] = round(rep.v_throat, 3)
+    d["highest speed [m/s]"] = round(rep.u_max, 3)
+    d["flow rate [L/s]"] = round(rep.Q * 1e3, 3)
     d["Re_D"] = round(rep.Re_D, 0)
+    d["Re_throat"] = round(rep.Re_throat, 0)
     for i, w in enumerate(rep.warnings, 1):
         d[f"warning {i}"] = w
     return d

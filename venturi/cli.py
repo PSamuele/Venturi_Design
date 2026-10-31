@@ -19,6 +19,7 @@ from .export import export_all
 from .fluids import FLUIDS, list_fluids
 from .fvmesh import build_fvmesh
 from .geometry import create_venturi_geometry
+from .grid_study import DEFAULT_TOL as GRID_TOL, run_study, study_levels, values_of
 from .optimizer import run_optimization
 from .solver import solve_fv
 from .turbulence import SUPPORTED as TURBULENCE_MODELS
@@ -31,10 +32,12 @@ examples:
   python main.py --D 0.1 --beta 0.5 --fluid water_20C --p-inlet 101325 --p-throat 95000
   python main.py --fluid custom --rho 1.2 --mu 1.8e-5 --p-inlet 200000 --p-throat 180000
   python main.py --list-fluids
+  python main.py --D 0.1 --beta 0.5 --grid-study
 
 run time (single CPU core):
   90 x 36 grid (default)   about 10 s
   128 x 51 grid            about 35 s, see "Speed" in the README
+  --grid-study             a few minutes on top, because of its tighter residual
 """
 
 
@@ -94,6 +97,18 @@ def build_parser() -> argparse.ArgumentParser:
       help="Reference C_d to compare with (for example from a datasheet).")
     a("--cd-tol", type=float, default=3.0, help="Allowed deviation from --cd-ref [%%].")
 
+    a("--grid-study", action="store_true",
+      help="After the run, solve the case on three or more grids and give the "
+           "estimated error and the GCI of every result.")
+    a("--grid-levels", default=None,
+      help="Grids of the study as NzxNr, comma separated, for example "
+           "90x36,128x51,180x72 (default: Nz x Nr, one about 1.4 times coarser "
+           "and one about 1.4 times finer).")
+    a("--grid-jobs", type=int, default=min(4, os.cpu_count() or 1),
+      help="Grids solved at the same time (default: up to 4).")
+    a("--grid-tol", type=float, default=GRID_TOL,
+      help=f"Residual target of the study (default {GRID_TOL:g}).")
+
     a("--output-dir", default=None,
       help=f"Output folder (default: {RESULTS_DIR}/<name built from the inputs>).")
     a("--no-export", action="store_true", help="Compute only, write no files.")
@@ -149,6 +164,10 @@ def interactive_wizard() -> argparse.Namespace:
     else:
         args.D = _ask("Pipe diameter D [m]", 0.1, float, lambda v: v > 0)
         args.beta = _ask("beta = d/D", 0.5, float, lambda v: 0 < v < 1)
+
+    print("\nA grid study solves the case on three grids and estimates the error "
+          "of every result (a few minutes more).")
+    args.grid_study = _ask("Grid study? (y/n)", "n", str.lower, lambda v: v in ("y", "n")) == "y"
     return args
 
 
@@ -181,9 +200,11 @@ def run(args) -> int:
         print("\nOwn fluid: --fluid custom --rho <value> --mu <value> [--p-vap <value>]")
         return 0
 
-    print("\n[1/6] Sizing from the inputs")
+    steps = 7 if args.grid_study else 6
+    print(f"\n[1/{steps}] Sizing from the inputs")
     try:
         config = config_from_args(args)
+        levels = study_levels(args.grid_levels, args.Nz, args.Nr) if args.grid_study else []
     except ValueError as e:
         print(f"Error: {e}")
         return 1
@@ -191,36 +212,45 @@ def run(args) -> int:
     for w in config.warnings():
         print(f"  [WARNING] {w}")
 
-    print("\n[2/6] Wall profile")
+    print(f"\n[2/{steps}] Wall profile")
     geom = create_venturi_geometry(config)
     print(f"      total length {geom.L_total*1000:.1f} mm  "
           f"(inlet {geom.L_inlet*1000:.1f}, converging {geom.L_conv*1000:.1f}, "
           f"throat {geom.L_throat*1000:.1f}, diverging {geom.L_div*1000:.1f}, "
           f"outlet {geom.L_outlet*1000:.1f})")
 
-    print(f"\n[3/6] Grid {config.Nz} x {config.Nr}")
+    print(f"\n[3/{steps}] Grid {config.Nz} x {config.Nr}")
     mesh = build_fvmesh(geom, config.Nz, config.Nr, config.wall_clustering,
                         config.throat_refine)
     print(f"      {mesh.n_cells} cells, volume {mesh.vol.sum()*1e6:.2f} cm3, "
           f"smallest cell {mesh.vol.min()*1e9:.3f} mm3")
 
-    print(f"\n[4/6] Flow solution, turbulence model '{config.turbulence_model}'")
+    print(f"\n[4/{steps}] Flow solution, turbulence model '{config.turbulence_model}'")
     t0 = time.time()
     result = solve_fv(mesh, config, verbose=True)
     print(f"      {'CONVERGED' if result.converged else 'NOT CONVERGED'} - "
           f"{result.n_iter} iterations in {time.time()-t0:.1f} s, "
           f"residual {result.final_residual:.2e}")
 
-    print("\n[5/6] Checks")
+    print(f"\n[5/{steps}] Checks")
     rep = validate(result, mesh, geom, config, cd_ref=args.cd_ref, cd_tol_pct=args.cd_tol)
     print_report(rep)
 
     if args.no_export:
-        print("\n[6/6] Files: skipped (--no-export)")
+        print(f"\n[6/{steps}] Files: skipped (--no-export)")
     else:
-        print("\n[6/6] Files")
+        print(f"\n[6/{steps}] Files")
         files = export_all(mesh, result.uz, result.ur, result.p, geom, config, to_dict(rep))
         print(f"      {len(files)} files in {config.output_dir}{os.sep}")
+
+    if args.grid_study:
+        print(f"\n[7/{steps}] Grid convergence")
+        text = run_study(args, levels, args.grid_jobs, args.grid_tol, base=values_of(rep),
+                         base_name=f"{config.Nz}x{config.Nr}", write_files=not args.no_export)
+        if not args.no_export:
+            with open(os.path.join(config.output_dir, "venturi_report.md"), "a",
+                      encoding="utf-8") as f:
+                f.write("\n" + text.replace("# Grid study", "## Grid study", 1))
 
     print("\n" + "=" * 66)
     print("RESULT: " + ("ALL CHECKS PASSED" if rep.all_passed else "SOME CHECKS FAILED"))

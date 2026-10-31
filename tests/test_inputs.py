@@ -99,7 +99,22 @@ def _fake_result(cfg, mesh, p):
     """A result whose fluxes carry exactly the design flow rate."""
     F_ax = np.tile(mesh.A_ax[0] / mesh.A_ax[0].sum() * cfg.Q, (mesh.Nz + 1, 1))
     return SimpleNamespace(p=p, F_ax=F_ax, F_rad=np.zeros((mesh.Nz, mesh.Nr + 1)),
+                           uz=np.full(p.shape, cfg.v_inlet), ur=np.zeros(p.shape),
                            final_residual=0.0, converged=True, y_plus_max=1.0)
+
+
+def test_loss_and_lowest_pressure_are_reported():
+    cfg = VenturiConfig(Nz=60, Nr=12)
+    geom = create_venturi_geometry(cfg)
+    mesh = build_fvmesh(geom, cfg.Nz, cfg.Nr, cfg.wall_clustering, cfg.throat_refine)
+    p = 100000.0 - 20000.0 * mesh.z_cc
+    rep = validate(_fake_result(cfg, mesh, p), mesh, geom, cfg)
+    assert rep.dp_loss == pytest.approx(rep.dp_measured * (1.0 - rep.pressure_recovery))
+    assert rep.loss_coef == pytest.approx(rep.dp_loss / (0.5 * cfg.rho * cfg.v_inlet ** 2))
+    assert rep.p_min == pytest.approx(p.min())
+    assert rep.z_p_min == pytest.approx(mesh.z_c[-1])
+    assert rep.dp_max == pytest.approx(cfg.p_inlet - p.min())
+    assert rep.u_max == pytest.approx(cfg.v_inlet)
 
 
 def test_taps_read_the_wall_at_the_exact_position():

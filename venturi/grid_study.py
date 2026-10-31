@@ -62,7 +62,6 @@ DEFAULT_TOL = 1e-4   # tighter than a normal run, so the iteration error is
                      # small next to the grid error being measured
 REFINEMENT = math.sqrt(2.0)   # between the default levels
 MIN_RATIO = 1.3               # Celik et al.: smaller steps drown in other errors
-FORMAL_ORDER = 2.0            # order of the scheme on smooth flow
 
 
 class Quantity(NamedTuple):
@@ -173,15 +172,6 @@ def gci(h: Sequence[float], phi: Sequence[float], safety: float = 1.25,
                      gci21=safety * e_a21 / (rp - 1.0), status=status)
 
 
-def order_note(p: float) -> str:
-    """What the observed order says about a converging quantity.
-
-    Returns a short warning for the behaviour column, "" when p is believable.
-    """
-    # TODO(human): compare p with FORMAL_ORDER and warn when it is suspicious.
-    return ""
-
-
 # ---------------------------------------------------------------------------
 # Choosing the grids
 # ---------------------------------------------------------------------------
@@ -274,9 +264,6 @@ def _triplet_rows(triplet: List[Dict]) -> Tuple[List[str], List[Dict]]:
                       error_pct=100 * g.e_ext21, gci_pct=100 * g.gci21,
                       band=g.gci21 * abs(phi[0]), order=g.p, behaviour=g.status)
         if g.usable:
-            note = order_note(g.p) if g.status == "converging" else ""
-            if note:
-                behaviour += f", {note}"
             lines.append(f"| {q.label} [{q.unit}] | {phi[0]:{q.fmt}} | {g.phi_ext:{q.fmt}} | "
                          f"{100 * g.e_a21:.3f} | {100 * g.e_ext21:.3f} | {100 * g.gci21:.3f} | "
                          f"+/- {g.gci21 * abs(phi[0]):{q.fmt}} | {g.p:.2f} | {behaviour} |")

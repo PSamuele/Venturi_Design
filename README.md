@@ -31,7 +31,8 @@ python main.py                       # interactive, asks you what you want
 python main.py --D 0.1 --beta 0.5 --p-inlet 101325 --p-throat 95000
 python main.py --list-fluids         # the fluid table
 python main.py --help                # every option
-python -m venturi.grid_study         # same case on 3 grids, error estimate
+python main.py --grid-study          # the run, then error estimate and GCI
+python -m venturi.grid_study         # only the grid study, no run files
 pytest tests/
 ```
 
@@ -88,8 +89,12 @@ goes for `pyvista` and `ezdxf`: if one is missing, the files that need it
 are skipped with a warning and are not listed as written. The STL files need
 no extra library.
 
-The grid study writes `grid_study.md` and `grid_study.csv` to
-`results/grid_study_<case>/`.
+The grid study only runs when you ask for it: `--grid-study`, or answer `y`
+in interactive mode. It writes `grid_study.md`, `grid_study.csv` (one row per
+grid) and `grid_study_gci.csv` (one row per result: extrapolated value,
+estimated error, GCI, band, order) to `results/grid_study_<case>/`. From
+`main.py`, the same tables are added to `venturi_report.md`, along with the
+estimated error of the run itself.
 
 ## Options
 
@@ -146,6 +151,10 @@ sea level), angles in degrees.
 | option                 | meaning                                                                       | default                          |
 | ---------------------- | ----------------------------------------------------------------------------- | -------------------------------- |
 | `--cd-ref`, `--cd-tol` | compare C_d with a value of yours (from a datasheet or a test), within this % | none, 3                          |
+| `--grid-study`         | after the run, estimate the grid error of every result                        | off                              |
+| `--grid-levels`        | grids of the study, `NzxNr` separated by commas, at least three               | `--Nz x --Nr`, +/- about 1.4x    |
+| `--grid-jobs`          | grids solved at the same time                                                 | up to 4                          |
+| `--grid-tol`           | residual target of the study                                                  | 1e-4                             |
 | `--output-dir`         | where the files go                                                            | `results/<name from the inputs>` |
 | `--no-export`          | compute only, write nothing                                                   | off                              |
 

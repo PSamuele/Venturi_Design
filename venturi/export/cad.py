@@ -64,7 +64,6 @@ def export_dxf(geom, out_dir: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 def bell_radius(D_mm: float, wall_mm: float) -> float:
     """Radius of the bell mouth at the inlet [mm]."""
-    # TODO(human): choose the sizing rule; it must stay larger than wall_mm
     return max(0.2 * D_mm, 1.5 * wall_mm)
 
 

@@ -32,7 +32,6 @@ python main.py --D 0.1 --beta 0.5 --p-inlet 101325 --p-throat 95000
 python main.py --list-fluids         # the fluid table
 python main.py --help                # every option
 python main.py --grid-study          # the run, then error estimate and GCI
-python -m venturi.grid_study         # only the grid study, no run files
 pytest tests/
 ```
 
@@ -153,8 +152,6 @@ sea level), angles in degrees.
 | `--cd-ref`, `--cd-tol` | compare C_d with a value of yours (from a datasheet or a test), within this % | none, 3                          |
 | `--grid-study`         | after the run, estimate the grid error of every result                        | off                              |
 | `--grid-levels`        | grids of the study, `NzxNr` separated by commas, at least three               | `--Nz x --Nr`, +/- about 1.4x    |
-| `--grid-jobs`          | grids solved at the same time                                                 | up to 4                          |
-| `--grid-tol`           | residual target of the study                                                  | 1e-4                             |
 | `--output-dir`         | where the files go                                                            | `results/<name from the inputs>` |
 | `--no-export`          | compute only, write nothing                                                   | off                              |
 
@@ -315,16 +312,36 @@ sqrt(2) times more cells per direction, same spacing shape, residual target
 
 Each refinement adds about half of what the previous one did (+0.0049,
 +0.0025, +0.0010), which is what a second-order scheme should do. From the
-three settled grids: observed order 2.16, extrapolated C_d 0.9795 for an
-infinitely fine grid, and a GCI of 0.28 % on the 128 x 51 value, i.e. the
-grid-independent C_d should lie within 0.28 % of 0.9774. The default grid
-reads about 0.47 % low; use 128 x 51 (about 35 s) when that matters.
+three settled grids: observed order 2.16, extrapolated C_d 0.9798 for an
+infinitely fine grid, and a GCI of 0.31 % on the 128 x 51 value, i.e. the
+grid-independent C_d should lie within 0.31 % of 0.9774. The default grid
+reads about 0.48 % low; use 128 x 51 (about 35 s) when that matters.
 (Extrapolation and GCI follow Celik et al., J. Fluids Eng. 130, 2008.)
 
 The 180 x 72 grid never settles, its residual hovers near 1e-2, but its C_d
 came out 0.97839 to five digits in two runs stopped at different moments,
-and it's where the trend predicts (0.97854). So the hovering doesn't move
-C_d.
+and it sits inside the GCI band (the trend predicts 0.97851). So the hovering
+doesn't move C_d.
+
+The grid study estimates the error of C_d well, but read these limits too:
+
+- `settled` means the residual dropped below the target once. On 128 x 51 it
+  later climbs back to about 1e-3 (C_d moves by less than 1e-5). With the
+  ramp a normal run picks, 128 x 51 doesn't reach 1e-4 in 400000 steps.
+- The pressure has a cell-to-cell sawtooth along the axis: about 125 Pa near
+  the throat tap on 64 x 26 and 28 Pa on 128 x 51. The cause isn't found yet;
+  it isn't the turbulence model, since it's also there in laminar flow and
+  with `mixing_length`. It's why the observed order is approximate: with
+  180 x 72 added, it goes from 2.16 to 2.49 for C_d and from 2.13 to 1.03 for
+  the pressure recovered, whose GCI goes from 0.75 % to 1.22 %.
+- The lowest pressure and the highest speed don't change steadily on these
+  grids, so their error is a rough one, from the spread of the three grids
+  (marked `rough`). Don't read the lowest pressure as a precise cavitation
+  margin.
+- The order p enters the error at no more than 2, the order of the scheme, so
+  the GCI on C_d is a little above what the plain formula gives.
+- The GCI only covers the grid. Switching to `mixing_length` moves the
+  extrapolated C_d by 0.09 to 0.15 %, not far from the grid error.
 
 ## Approximations & Annotations
 
@@ -437,7 +454,7 @@ pytest tests/          # 72 tests, about 10 seconds
 | `test_turbulence_models.py` | eddy viscosity never negative, zero for laminar, large at high Re; unknown models refused                                                                                                                                  |
 | `test_geometry.py`          | radius and slope continuous at the rounded corners                                                                                                                                                                         |
 | `test_inputs.py`            | bad inputs refused; sizing; gas density; Mach and cavitation warnings; options reach the program; throat refinement rule; optimiser; wall taps                                                                             |
-| `test_grid_study.py`        | extrapolation and GCI recover a known power law exactly; up-and-down results flagged                                                                                                                                       |
+| `test_grid_study.py`        | extrapolation and GCI recover a known power law exactly; unsteady results get a rough error from their spread                                                                                                              |
 | `test_export.py`            | every file puts the right value on the right point; missing libraries skip cleanly                                                                                                                                         |
 
 ## When something fails

@@ -103,6 +103,15 @@ def _fake_result(cfg, mesh, p):
                            final_residual=0.0, converged=True, y_plus_max=1.0)
 
 
+def test_section_average_is_taken_at_the_tap_positions():
+    cfg = VenturiConfig(Nz=60, Nr=12)
+    geom = create_venturi_geometry(cfg)
+    mesh = build_fvmesh(geom, cfg.Nz, cfg.Nr, cfg.wall_clustering, cfg.throat_refine)
+    p = 100000.0 - 20000.0 * mesh.z_cc
+    rep = validate(_fake_result(cfg, mesh, p), mesh, geom, cfg)
+    assert rep.dp_section_mean == pytest.approx(rep.dp_measured, rel=1e-12)
+
+
 def test_loss_and_lowest_pressure_are_reported():
     cfg = VenturiConfig(Nz=60, Nr=12)
     geom = create_venturi_geometry(cfg)

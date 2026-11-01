@@ -85,10 +85,14 @@ class ValidationReport:
         return all(c.passed for c in self.checks)
 
 
-def section_mean(p: np.ndarray, mesh, i: int) -> float:
-    """Pressure of cell row i averaged over the cross-section (volume weighted)."""
-    w = mesh.vol[i, :]
-    return float(np.sum(p[i, :] * w) / np.sum(w))
+def section_mean(p: np.ndarray, mesh, z: float) -> float:
+    """Pressure averaged over the cross-section (volume weighted) at position z.
+
+    Interpolated along z like the taps: the nearest row would move the
+    section by up to half a cell, a different amount on every grid.
+    """
+    means = np.sum(p * mesh.vol, axis=1) / np.sum(mesh.vol, axis=1)
+    return float(np.interp(z, mesh.z_c, means))
 
 
 def tap_pressure(p: np.ndarray, mesh, z: float) -> float:
@@ -127,15 +131,13 @@ def validate(result, mesh, geom, config, cd_ref: Optional[float] = None,
     zs = geom.z_stations
     z_up = zs[1] - 0.5 * D
     z_th = 0.5 * (zs[2] + zs[3])
-    i_up = int(np.argmin(np.abs(mesh.z_c - z_up)))
-    i_th = int(np.argmin(np.abs(mesh.z_c - z_th)))
     p_up = tap_pressure(result.p, mesh, z_up)
     p_th = tap_pressure(result.p, mesh, z_th)
     p_out = tap_pressure(result.p, mesh, mesh.z_c[-1])
     dp = p_up - p_th
     rep.dp_measured = dp
-    rep.dp_section_mean = (section_mean(result.p, mesh, i_up)
-                           - section_mean(result.p, mesh, i_th))
+    rep.dp_section_mean = (section_mean(result.p, mesh, z_up)
+                           - section_mean(result.p, mesh, z_th))
     rep.dp_ideal = float(config.dp_ideal)
     rep.pressure_recovery = (p_out - p_th) / dp if dp != 0.0 else 0.0
     rep.p_up, rep.p_throat, rep.p_out = p_up, p_th, p_out

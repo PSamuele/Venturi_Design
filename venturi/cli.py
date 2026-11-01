@@ -19,7 +19,7 @@ from .export import export_all
 from .fluids import FLUIDS, list_fluids
 from .fvmesh import build_fvmesh
 from .geometry import create_venturi_geometry
-from .grid_study import DEFAULT_TOL as GRID_TOL, run_study, study_levels, values_of
+from .grid_study import run_study, study_levels, values_of
 from .optimizer import run_optimization
 from .solver import solve_fv
 from .turbulence import SUPPORTED as TURBULENCE_MODELS
@@ -104,10 +104,6 @@ def build_parser() -> argparse.ArgumentParser:
       help="Grids of the study as NzxNr, comma separated, for example "
            "90x36,128x51,180x72 (default: Nz x Nr, one about 1.4 times coarser "
            "and one about 1.4 times finer).")
-    a("--grid-jobs", type=int, default=min(4, os.cpu_count() or 1),
-      help="Grids solved at the same time (default: up to 4).")
-    a("--grid-tol", type=float, default=GRID_TOL,
-      help=f"Residual target of the study (default {GRID_TOL:g}).")
 
     a("--output-dir", default=None,
       help=f"Output folder (default: {RESULTS_DIR}/<name built from the inputs>).")
@@ -245,7 +241,7 @@ def run(args) -> int:
 
     if args.grid_study:
         print(f"\n[7/{steps}] Grid convergence")
-        text = run_study(args, levels, args.grid_jobs, args.grid_tol, base=values_of(rep),
+        text = run_study(args, levels, base=values_of(rep),
                          base_name=f"{config.Nz}x{config.Nr}", write_files=not args.no_export)
         if not args.no_export:
             with open(os.path.join(config.output_dir, "venturi_report.md"), "a",
